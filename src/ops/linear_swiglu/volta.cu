@@ -38,7 +38,8 @@ struct SplitOutput {
     int rows;
 
     __device__ void store(int row, int token, float value) const {
-        (row < rows ? gate : up)[static_cast<long long>(token) * rows + row % rows] = value;
+        (row < rows ? gate : up)[static_cast<long long>(token) * rows +
+                                (row < rows ? row : row - rows)] = value;
     }
 };
 
@@ -69,22 +70,27 @@ void dispatch(const Tensor& x, const Weight& w, Tensor& out, LinearPolicy p, Wor
         auto* input     = static_cast<half*>(activation.data);
         stage<<<(kInput * x.ne[1] + 255) / 256, 256, 0, stream>>>(
             static_cast<const __nv_bfloat16*>(x.data), input, kInput * x.ne[1]);
-        for (int half_index = 0; half_index < 2; ++half_index) {
-            Weight part        = w;
-            part.n             = kRows / 2;
-            const bool nv      = w.qtype == QType::NVFP4;
-            part.qdata         = static_cast<const unsigned char*>(w.qdata) +
-                                 static_cast<long long>(half_index) * part.n * w.k / (nv ? 2 : 1);
-            part.scales        = static_cast<const unsigned char*>(w.scales) +
-                                 static_cast<long long>(half_index) * part.n * (nv ? w.k / 16 : 2);
-            float* destination = half_index ? up : gate;
-            if (nv)
-                launch_nvfp4_volta_qpn_with_fp16_activation(
-                    x, part, input, Nvfp4Fp32ContiguousOutput{destination, part.n}, part.n,
-                    1.f / w.weight_scale_divisor, stream);
-            else
+        // Compute the adjacent gate/up row ranges in one grid. Both retain
+        // FP32 outputs until the fused SwiGLU epilogue performs its final cast.
+        const SplitOutput output{gate, up, kRows / 2};
+        if (w.qtype == QType::NVFP4)
+            launch_nvfp4_volta_qpn_with_fp16_activation(
+                x, w, input, output, kRows, 1.f / w.weight_scale_divisor, stream);
+        else if (x.ne[1] <= 16)
+            launch_fp8_volta_qpn_with_fp16_activation(x, w, input, output, kRows, stream);
+        else {
+            // The wider FP8 tile benefits from separate contiguous output grids.
+            for (int half_index = 0; half_index < 2; ++half_index) {
+                Weight part = w;
+                part.n      = kRows / 2;
+                part.qdata  = static_cast<const unsigned char*>(w.qdata) +
+                              static_cast<long long>(half_index) * part.n * w.k;
+                part.scales = static_cast<const unsigned char*>(w.scales) +
+                              static_cast<long long>(half_index) * part.n * 2;
                 launch_fp8_volta_qpn_with_fp16_activation(
-                    x, part, input, Fp8Fp32ContiguousOutput{destination, part.n}, part.n, stream);
+                    x, part, input, Fp8Fp32ContiguousOutput{half_index ? up : gate, part.n},
+                    part.n, stream);
+            }
         }
     } else {
         // The generic projection's result plane would overlap the live gate/up planes;

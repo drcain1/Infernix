@@ -549,3 +549,125 @@ profile, exact packed projection probe, before/after CSVs, oracle logs, and `sta
 with all HTTP responses and timings. Reproduce using the original 240K startup command and
 HTTP client above. The DFlash2 comparison predates this shared-kernel optimization and has
 not been remeasured; it must not be interpreted as current DFlash2 throughput.
+
+### V100 broader MTP comparison and second optimization
+
+This follow-up compares the staged-input build above, a further optimized build, and a fresh
+run of the installed NInfer V100 service. It uses the same V100 PCIe 32 GB at 170 W, model
+weights and original template, INT8 KV, MTP4, optimized proposal head, vision reservation,
+240,000-token context limit, 2,048-token prefill chunk and one resident request. Infernix uses
+CUDA 12.9; the installed NInfer binary uses CUDA 12.8, on the same driver. These are engine
+comparisons, not a controlled comparison of compiler versions.
+
+Requests were frozen before comparing results: bicycle maintenance (2,061 prompt tokens),
+a Python cache review (1,558), and a maintenance archive (15,889). Each generates 256 tokens
+at temperature 0.7 with thinking disabled. Each workload has one excluded warmup (seed 11)
+and three retained measurements (seeds 17, 29, 43). All have zero prefix-cache hits. Per-request
+labels prevent reuse; request JSON is identical across engines and builds. Seeds control
+request inputs but do not guarantee identical sampled output or draft acceptance across
+engines. Reported means are arithmetic means of the three runs; the aggregate is the geometric
+mean of the three workload speed ratios, with each workload weighted equally.
+
+The fresh staged-build comparison revealed a long-prompt weakness: its prefill rate was
+749.67 tok/s versus NInfer's 892.32, and total latency was 25.580 s versus 22.896 s, despite
+faster decode. This result is retained; the earlier single-prompt, unseeded +20.27% decode
+result is not substituted for this broader comparison.
+
+Whole-request profiles attributed 40.3% of long-request GPU time to wide GEMM, 23.6% to
+prefill attention and 7.0% to recurrent GDN. Short-request profiling also identified the
+packed NVFP4 SwiGLU projections as a substantial decode cost. Profiled times are used for
+attribution; throughput comparisons use unprofiled HTTP requests.
+
+The selected implementation combines the adjacent gate/up projections into one grid for
+NVFP4 T <= 32 and FP8 T <= 16. FP32 gate/up results still feed the same SwiGLU epilogue and
+final BF16 cast. FP8 T=17–32 retains separate grids because the combined T=32 experiment
+was 9.38% slower. The 24-query-head attention geometry uses 32 query columns per tile
+instead of 16, retaining FP32 weighted-value accumulation, causal masks and stream-K fixup.
+The 16-head geometry retains its existing tile. No public interface, artifact representation,
+model binding, persistent weight expansion or hidden allocation is introduced. Scratch and
+metadata remain owned by the existing workspace queries and execution arena.
+
+Rejected alternatives remain relevant: prefetching two or four packed NVFP4 weight groups
+slowed the important T=1–8 private-kernel probes by roughly 7–17%; gains at T=16 did not justify
+adopting it. Three alternative wide-GEMM tile/swizzle schedules produced mixed results and
+no consistent improvement over the existing 128x256 tile. Neither experiment entered production.
+
+Public INT8 append-and-attend and cached-only attention benchmarks use cold CUDA Graphs,
+five warmups and 30 samples, with T=64/256/2048 and history lengths 0/2048/14336. The larger
+tile reduces median latency by 12.53–55.35% at the 12 points that select the affected route;
+the six other points range from 0.05% faster to 0.10% slower. At T=2048 the reduction is
+12.53–23.23%. Reported workspace capacities and measured peaks are identical at all 18 points.
+These are public Op measurements, not end-to-end speedups.
+
+A further 64-key attention tile was rejected: it slowed all 12 affected points by
+5.28–40.97% relative to the selected 32-key tile, despite fitting the same one-block occupancy.
+It was reverted before end-to-end measurement. Final public SwiGLU medians at T=1/4/5/8/16/32
+fall by 6.12–12.36% for NVFP4 and 2.16–11.90% for the changed FP8 T<=16 route; the unchanged
+FP8 T=32 control is 0.40% faster. The original combined FP8 T=32 regression remains the reason
+for retaining its separate-grid implementation. SwiGLU workspace capacities are unchanged.
+
+Unprofiled HTTP results (mean, with the full three-run min–max range in parentheses):
+
+| Workload / engine | Decode tok/s | Prefill tok/s | Wall s | Draft acceptance |
+|---|---:|---:|---:|---:|
+| Bicycle / NInfer | 58.40 (56.63–61.55) | 926.15 (920.64–929.76) | 6.603 (6.365–6.744) | 42.63% |
+| Bicycle / previous Infernix | 62.56 (60.82–64.36) | 947.81 (946.66–949.37) | 6.280 (6.165–6.391) | 38.44% |
+| Bicycle / optimized Infernix | 68.17 (65.32–72.65) | 957.29 (956.22–958.76) | 5.929 (5.691–6.080) | 43.12% |
+| Code / NInfer | 62.29 (60.15–65.92) | 873.40 (872.53–875.12) | 5.891 (5.661–6.027) | 47.03% |
+| Code / previous Infernix | 69.68 (67.06–74.16) | 870.81 (869.12–872.22) | 5.483 (5.251–5.617) | 45.56% |
+| Code / optimized Infernix | 67.36 (65.28–70.24) | 877.75 (877.24–878.33) | 5.591 (5.433–5.707) | 42.40% |
+| 16K archive / NInfer | 50.47 (47.16–55.07) | 892.32 (889.21–895.56) | 22.896 (22.453–23.289) | 39.95% |
+| 16K archive / previous Infernix | 58.61 (57.27–60.50) | 749.67 (748.35–751.37) | 25.580 (25.453–25.717) | 42.14% |
+| 16K archive / optimized Infernix | 59.34 (57.33–62.65) | 792.40 (791.41–793.89) | 24.388 (24.117–24.557) | 42.22% |
+
+Against previous Infernix, the bicycle/code/archive decode means change by
+**+8.97% / -3.34% / +1.24%**, prefill by **+1.00% / +0.80% / +5.70%**, and wall latency by
+**-5.59% / +1.98% / -4.66%**. Equal-workload geometric means give **+2.16% decode,
++2.47% prefill and 2.82% less wall time** (2.90% faster inverse wall time). The code-review
+regression is retained: its worst paired seed loses 11.97% decode speed and takes 8.67%
+longer. Across all nine paired requests, decode changes range from -11.97% to +12.88%,
+prefill from +0.70% to +5.75%, and wall latency from -7.69% to +8.67%.
+
+Against fresh NInfer, decode means improve by **16.72% / 8.13% / 17.56%**; the geometric
+mean improvement is **14.06%**. This broader result falls below a 15% aggregate target.
+Prefill changes by **+3.36% / +0.50% / -11.20%** and wall latency by
+**-10.21% / -5.09% / +6.52%**. The archive request remains slower overall. Aggregate prefill
+is 2.65% lower and wall latency 3.18% lower (3.28% faster inverse wall time). All nine paired
+decode rates exceed NInfer, by 0.96–27.38%; paired prefill changes range from -11.35% to
++4.14%, and wall latency from -10.59% to +9.08%. Faster mean decode does not establish a
+win for every request or latency metric.
+
+Draft acceptance changed between builds, increasing on bicycle and decreasing on code.
+These sampled throughput differences include that effect; they cannot all be attributed to
+kernel latency. Three runs per workload do not establish a universal gain or statistical
+confidence across applications. No Claude-produced patch or comparable benchmark was available,
+so these results do not establish a comparison against that implementation.
+
+All nine affected numerical suites passed: packed Volta, native FP8 and native NVFP4 SwiGLU,
+plus the main and wide BF16/INT8/FP8 attention suites. They retain their independent FP64
+oracles and existing error criteria; no tolerance was relaxed. SwiGLU qualification uses
+independently decoded stored weights/scales at the real 34816x5120 geometry, including
+T=1/5/8/16/32/33/65/129 and graph cases. Attention qualification covers independently decoded
+KV, long histories, fragmented pages, append/cached routes, graph envelopes, masked-prefix
+invariance, partial batches and canaries. The rejected 64-key variant was performance-tested
+only and is absent from the final source.
+
+Final 64-token greedy plain/MTP/tree and chart-vision outputs match the preceding build byte
+for byte. Planned/measured workspace remains 740 MiB for text and 839.5 MiB for vision.
+CUDA Graph memory remains 8 MiB for plain/MTP/vision and falls from 244 to 242 MiB for the
+forced 32-node tree. Tree throughput was not remeasured. Blackwell compilation and GPU testing
+remain unavailable; these changes select Volta implementations only.
+
+Evidence is retained in `profiles/bench/v100-mtp-round2/`: `baseline/`, `ninfer/` and
+`candidate/` contain every request, response, timing and summary; `suite.py` defines the
+frozen requests. Run the original 240K server command above, then
+`.venv/bin/python3.11 profiles/bench/v100-mtp-round2/suite.py <fresh-output-directory>`.
+The same directory retains short/long Nsight captures, public-Op CSVs and probe sources,
+rejected-experiment results, `candidate-oracles.log`, and `final_smokes.sh` with its outputs.
+
+The final 168-position BF16/INT8 scoring summaries are exactly unchanged:
+perplexity 7.291306250865034 / 7.288551281435343, INT8 mean KL lower bound
+0.0004876700137516895 against BF16, and top-1 agreement 98.81%. Numerical KL fields also
+match; only the reference-file path differs. These short checks do not establish corpus-wide
+quality or long-context task accuracy. All benchmark/smoke GPU processes exited, and the
+NInfer service remains stopped.

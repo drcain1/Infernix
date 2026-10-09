@@ -11,7 +11,7 @@ This fork ports the Infernix C++/CUDA inference engine to the **NVIDIA Tesla V10
 KV storage; MoE and Qwen3.8-Flash-Next are outside its scope.
 
 Start with the [V100 build and offline weight-packing instructions](docs/maintainer/build-system.md#configuration).
-See the [V100 MTP performance results](docs/performance/qwen3.8-27b.md#v100-mtp-activation-staging-optimization)
+See the [V100 MTP performance results](docs/performance/qwen3.8-27b.md#v100-broader-mtp-comparison-and-second-optimization)
 for the measured comparison with NInfer, resource costs and qualification limits.
 
 [Upstream Infernix](https://github.com/Wallawalla47/Infernix) targets the RTX 5090.

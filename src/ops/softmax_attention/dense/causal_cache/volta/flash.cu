@@ -49,7 +49,8 @@ constexpr int kDV      = 256;
 //   24q/4kv -> ratio 6: 6 % 8 != 0, 6 % 4 != 0, then DKQ <= 256 and 6 % 2 == 0
 //                       -> ncols2 = 2
 //   16q/2kv -> ratio 8: 8 % 8 == 0                              -> ncols2 = 8
-// ncols1 is then chosen so ncols1*ncols2 == 32, the smallest tile Volta compiles.
+// The 24-head geometry uses 32 query columns (64 total with GQA) to amortize
+// K/V loads and FP32 PV accumulation. The 16-head geometry retains 32 total columns.
 // A causal mask tensor is mandatory in both cases: mask == nullptr is only legal
 // at ncols2 == 1.
 template <typename Geometry>
@@ -58,7 +59,7 @@ struct VoltaFlashTiling;
 template <>
 struct VoltaFlashTiling<volta::CausalD256H24Kv4> {
     static constexpr int ncols2 = 2;
-    static constexpr int ncols1 = 16;
+    static constexpr int ncols1 = 32;
 };
 
 template <>
