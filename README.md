@@ -1,14 +1,24 @@
-# Infernix
+# Infernix — NVIDIA V100 port
 
 > **AI disclaimer:** Everything added to this engine since it forked from NInfer, including most of
 > this README, was written with AI (mostly Claude Opus 5.5, Qwen3.8-27B running on Infernix, plus a
 > few other AI systems I’ve been testing). It is likely to be neither complete nor entirely
 > accurate. This is hobby development.
 
-Infernix is a C++/CUDA inference engine that serves Qwen models on a single NVIDIA
-RTX 50-series GPU (tuned on the RTX 5090). It began as a fork of
-[NInfer](https://github.com/Neroued/ninfer) by [Neroued](https://github.com/Neroued) and has grown
-into its own engine; it reads NInfer's `.ninfer` artifacts as well as its own `.infernix` files.
+This fork ports the Infernix C++/CUDA inference engine to the **NVIDIA Tesla V100
+(Volta, `sm_70`)**, focusing on the **dense Qwen3.6/3.8-27B family**. It uses
+**CUDA 12.9** and the `v100` CMake preset. The V100 build supports BF16, INT8 and FP8
+KV storage; MoE and Qwen3.8-Flash-Next are outside its scope.
+
+Start with the [V100 build and offline weight-packing instructions](docs/maintainer/build-system.md#configuration).
+See the [V100 MTP performance results](docs/performance/qwen3.8-27b.md#v100-mtp-activation-staging-optimization)
+for the measured comparison with NInfer, resource costs and qualification limits.
+
+[Upstream Infernix](https://github.com/Wallawalla47/Infernix) targets the RTX 5090.
+It began as a fork of [NInfer](https://github.com/Neroued/ninfer) by
+[Neroued](https://github.com/Neroued); it reads NInfer's `.ninfer` artifacts as well as
+its own `.infernix` files. The upstream feature overview and RTX 5090 benchmarks below
+describe that Blackwell build; V100 support and measurements are documented in the links above.
 
 ## Why Infernix
 
