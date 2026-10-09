@@ -188,6 +188,13 @@ The server is `build/apps/infernix-serve` and takes the same options. Under WSL2
 NVIDIA driver (do not install a Linux one inside WSL) and copy models into the Linux filesystem
 first; reads through `/mnt/` are slow.
 
+The V100 port uses CUDA 12.9 and the `v100` CMake preset. It targets the dense Qwen 27B family,
+including Qwen3.8-27B; Flash-Next is outside this target. The
+[matched V100 comparison](docs/performance/qwen3.8-27b.md#v100-comparison-with-ninfer)
+records measured performance, costs and qualification limits.
+See [V100 build and offline weight packing](docs/maintainer/build-system.md#configuration)
+for compiler selection, supported KV formats and artifact preparation.
+
 ## Models
 
 - **[Qwen3.8-Flash-Next-NVIDIA-NVFP4-Dense8-Infernix](https://huggingface.co/Wallawalla47/Qwen3.8-Flash-Next-NVIDIA-NVFP4-Dense8-Infernix)**

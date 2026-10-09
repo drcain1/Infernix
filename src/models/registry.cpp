@@ -9,13 +9,15 @@ Architecture resolve_architecture(std::string_view architecture, std::string_vie
     if (architecture == "Qwen3_5ForCausalLM" && model_type == "qwen3_5_text") {
         return Architecture::Qwen3_5;
     }
+#if !defined(INFERNIX_VOLTA)
     if (architecture == "Qwen3_5MoeForCausalLM" && model_type == "qwen3_5_moe_text") {
         return Architecture::Qwen3_5Moe;
     }
     if (architecture == "Qwen4ExpForCausalLM" && model_type == "qwen4_exp_text") {
         return Architecture::Qwen4Exp;
     }
-    throw std::invalid_argument("unsupported architecture/config pair " +
+#endif
+    throw std::invalid_argument("unsupported architecture/config pair for this build " +
                                 std::string(architecture) + "/" + std::string(model_type));
 }
 

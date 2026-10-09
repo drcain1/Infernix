@@ -72,18 +72,31 @@ std::string usage_text() {
            "       [--prefill-chunk N] (tokens per scoring prefill pass, a multiple of 128;\n"
            "        default the Engine's 1024)\n"
            "       [--rope-yarn-factor F] (startup-fixed, finite [1,4], default 1; ceiling only)\n"
+#ifdef INFERNIX_VOLTA
+           "       [--kv-dtype bf16|int8|fp8] (default fp8)\n"
+#else
            "       [--kv-dtype bf16|int8|fp8|nvfp4|k8v4|vq2|k4v2] (default fp8)\n"
+#endif
            "       [--use-original-int8-prefill-kernel (int8 only; default fast kernel)]\n"
            "       [--prefill-8bit-pv | --no-prefill-8bit-pv] (8-bit P*V for INT8 and K4V2;\n"
            "        FP16 for NVFP4, K8V4 and VQ2, which default to 8-bit; see infernix-serve)\n"
            "       [--use-original-nvfp4-prefill-kernel (nvfp4 only; default fast kernel)]\n"
+#ifdef INFERNIX_VOLTA
+           "       [--a16-activations] (Volta already uses 16-bit activation arithmetic)\n"
+#else
            "       [--a16-activations] (16-bit activations in every linear: the reference for\n"
            "        measuring activation quantization; at least 3x slower on NVFP4 artifacts)\n"
+#endif
            "       [--output <directory>]\n"
            "       [--save-top-tokens <file>] (record each position's 32 most probable tokens)\n"
            "       [--kl-reference <file>] (KL divergence from a --save-top-tokens run of the\n"
            "        same corpus, context and stride, by context length)\n"
-           "       [--log-level trace|debug|info|warning|error|critical|off]\n";
+           "       [--log-level trace|debug|info|warning|error|critical|off]\n"
+#ifdef INFERNIX_VOLTA
+           "V100 build: dense Qwen 27B only. Prefill kernel/PV selectors keep\n"
+           "the same Volta route.\n"
+#endif
+        ;
 }
 
 [[noreturn]] void usage_error(std::string_view message) {

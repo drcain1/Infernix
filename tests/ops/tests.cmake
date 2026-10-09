@@ -29,6 +29,9 @@ set(infernix_op_tests
   top_logprobs
   token_constraint
   position)
+if(INFERNIX_VOLTA)
+  list(REMOVE_ITEM infernix_op_tests kimi_delta_attention rows)
+endif()
 foreach(op IN LISTS infernix_op_tests)
   infernix_add_op_test(infernix_${op}_test
     SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_${op}.cpp"
@@ -50,9 +53,13 @@ infernix_add_op_test(infernix_softmax_attention_test
           "${CMAKE_CURRENT_LIST_DIR}/softmax_attention/context.cpp"
   LIBRARIES infernix_ops
   ARGS --non-causal-only)
+set(infernix_attention_test_storage bf16 int8 fp8)
+if(NOT INFERNIX_VOLTA)
+  list(APPEND infernix_attention_test_storage nvfp4 k8v4)
+endif()
 # The causal cases, one entry per KV format: together they run exactly the cases of a run without
 # --kv-dtype, and `ctest -j` can run them concurrently.
-foreach(kv_dtype bf16 int8 fp8 nvfp4 k8v4)
+foreach(kv_dtype IN LISTS infernix_attention_test_storage)
   add_test(NAME infernix_softmax_attention_${kv_dtype}_test
     COMMAND infernix_softmax_attention_test --kv-dtype ${kv_dtype})
   set_tests_properties(infernix_softmax_attention_${kv_dtype}_test PROPERTIES SKIP_RETURN_CODE 77)
@@ -75,9 +82,11 @@ infernix_add_op_test(infernix_kv_cache_vq_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_kv_cache_vq.cu"
   LIBRARIES infernix_ops)
 
+if(NOT INFERNIX_VOLTA)
 infernix_add_op_test(infernix_vq_attention_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_vq_attention.cu"
   LIBRARIES infernix_ops)
+endif()
 
 infernix_add_op_test(infernix_rmsnorm_rope_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_rmsnorm_rope.cpp"
@@ -165,7 +174,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/linear_add/tests.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/linear_pair/tests.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/linear_swiglu/tests.cmake")
 
-foreach(kv_dtype bf16 int8 fp8 nvfp4 k8v4)
+foreach(kv_dtype IN LISTS infernix_attention_test_storage)
   add_test(NAME infernix_softmax_attention_wide_${kv_dtype}_test
     COMMAND infernix_softmax_attention_test --wide-only --kv-dtype ${kv_dtype})
   set_tests_properties(infernix_softmax_attention_wide_${kv_dtype}_test
@@ -202,6 +211,7 @@ add_test(NAME infernix_gdn_replay_fold_wide_batched_test
 set_tests_properties(infernix_gdn_replay_fold_wide_batched_test
   PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
 
+if(NOT INFERNIX_VOLTA)
 # hyper_connection_mix against the FP64 closed formula: fused Q8 route (T <= 16) and composed route.
 infernix_add_op_test(infernix_hyper_connection_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_hyper_connection.cpp"
@@ -249,3 +259,5 @@ infernix_add_op_test(infernix_offloaded_moe_wide_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_offloaded_moe_wide.cu"
   LIBRARIES infernix_ops)
 set_tests_properties(infernix_offloaded_moe_wide_test PROPERTIES TIMEOUT 900)
+
+endif()

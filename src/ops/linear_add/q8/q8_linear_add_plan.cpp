@@ -201,6 +201,9 @@ bool q8_linear_add_schedule_uses_mma(Q8LinearAddScheduleId schedule) noexcept {
 }
 
 bool q8_linear_add_admits(const Q8LinearAddProblem& problem) noexcept {
+#ifdef INFERNIX_VOLTA
+    if (problem.rows != 5120) return false;
+#endif
     const bool shape = (problem.rows == 2048 && (problem.k == 4096 || problem.k == 6144)) ||
                        (problem.rows == 5120 && (problem.k == 6144 || problem.k == 17408));
     return shape && problem.padded_k == problem.k && problem.cols >= 1;
@@ -237,6 +240,7 @@ void q8_linear_add_execute_plan(const Q8LinearAddPlan& plan, const Tensor& x, co
         q8_linear_add_splitk_capacity_launch(x, w, residual_out, stream);
         return;
     }
+#ifndef INFERNIX_VOLTA
     if (plan.schedule == Q8LinearAddScheduleId::DecodeR16) {
         q8_linear_add_decode_r16_launch(x, w, residual_out, stream);
         return;
@@ -306,6 +310,9 @@ void q8_linear_add_execute_plan(const Q8LinearAddPlan& plan, const Tensor& x, co
             }
             throw std::logic_error("q8 linear_add: unknown tiled schedule");
         });
+#else
+    throw std::logic_error("q8 linear_add: unsupported Volta schedule");
+#endif
 }
 
 void q8_linear_add_dispatch(const Tensor& x, const Weight& w, Tensor& residual_out,

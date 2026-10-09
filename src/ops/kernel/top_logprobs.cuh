@@ -25,7 +25,7 @@ __device__ __forceinline__ unsigned long long top_logprobs_key(float value, std:
 }
 
 template <int BlockSize>
-__device__ __forceinline__ unsigned long long top_logprobs_block_max(unsigned long long value) {
+static __device__ __forceinline__ unsigned long long top_logprobs_block_max(unsigned long long value) {
     static_assert(BlockSize >= kWarpSize && BlockSize <= 1024);
     static_assert((BlockSize & (BlockSize - 1)) == 0);
     constexpr int kWarps = BlockSize / kWarpSize;

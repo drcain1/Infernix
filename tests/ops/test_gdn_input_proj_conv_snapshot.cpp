@@ -924,7 +924,11 @@ int run_nvfp4_case(DevicePackedWeight& parent, std::int32_t tokens, ops::LinearP
                 parent.host, row, activation.data() + static_cast<std::size_t>(token) * kHidden,
                 kHidden);
         });
+#ifdef INFERNIX_VOLTA
+    const bool a4 = false;
+#else
     const bool a4 = policy == ops::LinearPolicy::AllowA4 && tokens >= 4;
+#endif
     const ReductionCriterion& criterion =
         a4 ? kGdnInputProjConvSnapshotA4Tolerance : kGdnInputProjConvSnapshotA16Tolerance;
     const std::string suffix =
@@ -986,7 +990,11 @@ int run_nvfp4() {
         const std::size_t workspace_bytes =
             ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(QType::NVFP4, kRows, kHidden,
                                                                        policy, batch, width, width);
+#ifdef INFERNIX_VOLTA
+        const bool a4 = false;
+#else
         const bool a4 = policy == ops::LinearPolicy::AllowA4;
+#endif
         return run_batched_case(
             std::string("NVFP4 ") + (a4 ? "A4" : "A16") + " B=" + std::to_string(batch) +
                 " W=" + std::to_string(width) + " masked",
@@ -1085,7 +1093,11 @@ int run_fp8_case(DevicePackedWeight& parent, std::int32_t tokens, ops::LinearPol
                 parent.host, row, activation.data() + static_cast<std::size_t>(token) * kHidden,
                 kHidden);
         });
+#ifdef INFERNIX_VOLTA
+    const bool uses_a8 = false;
+#else
     const bool uses_a8                  = policy == ops::LinearPolicy::AllowA8 && tokens >= 17;
+#endif
     const ReductionCriterion& criterion = uses_a8 ? kFp8GdnInputProjConvSnapshotA8Tolerance
                                                   : kFp8GdnInputProjConvSnapshotA16Tolerance;
     const std::string suffix =
@@ -1151,7 +1163,11 @@ int run_fp8() {
     const auto run_batched = [&](std::int32_t width, std::int32_t batch,
                                  std::vector<std::int32_t> valid_columns, std::uint32_t seed) {
         const std::vector<float> conv_weight = make_conv_weight(kChannels, seed);
+#ifdef INFERNIX_VOLTA
+        const bool uses_a8 = false;
+#else
         const bool uses_a8                   = width * batch >= 17;
+#endif
         const std::size_t workspace_bytes =
             ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
                 QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, batch,
@@ -1208,6 +1224,7 @@ int main() {
         std::cerr << "Q4/Q5 snapshot interval did not retain its non-monotonic T=4 route\n";
         ++failures;
     }
+#ifndef INFERNIX_VOLTA
     if (ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(2048, 2048, 4096, 1, 1, 16) !=
             0 ||
         ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(2048, 2048, 4096, 1, 1, 17) !=
@@ -1228,6 +1245,7 @@ int main() {
         std::cerr << "NVFP4 snapshot interval did not preserve its A16/A4 route boundary\n";
         ++failures;
     }
+#endif
     const auto fp8_snapshot_capacity = [](ops::LinearPolicy policy, std::int32_t batch,
                                           std::int32_t min_width, std::int32_t max_width) {
         return ops::gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
@@ -1246,7 +1264,9 @@ int main() {
         }
     }
     failures += run_q4_q5();
+#ifndef INFERNIX_VOLTA
     failures += run_q8();
+#endif
     failures += run_nvfp4();
     failures += run_fp8();
     std::cout << (failures == 0 ? "OK" : "FAIL") << " gdn_input_proj_conv_snapshot\n";

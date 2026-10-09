@@ -18,6 +18,8 @@
 #include <string>
 
 namespace infernix::ops {
+
+
 namespace {
 
 bool aligned_to(const void* pointer, std::uintptr_t alignment) {
@@ -146,6 +148,7 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& q, Te
         return;
     }
 
+
     constexpr std::int32_t kHidden = 2048;
     constexpr std::int32_t kQRows  = 4096;
     constexpr std::int32_t kKvRows = 512;
@@ -237,9 +240,13 @@ void attn_input_proj(const Tensor& x, const Weight& query_key_gate_value_weight,
 
 bool attn_input_proj_fused_rmsnorm_nvfp4_eligible(const Weight& weight, LinearPolicy policy,
                                                   std::int32_t tokens) {
+#if defined(INFERNIX_VOLTA)
+    return false;
+#else
     return policy == LinearPolicy::AllowA4 && detail::nvfp4_attn_input_tma_route(tokens) &&
            weight.qtype == QType::NVFP4 && weight.layout == QuantLayout::BlockScaleK16M128x4 &&
            weight.n == 14336 && weight.k == 5120;
+#endif
 }
 
 void attn_input_proj_fused_rmsnorm_nvfp4(const Tensor& residual, const Tensor& norm_weight,
@@ -265,8 +272,10 @@ void attn_input_proj_fused_rmsnorm_nvfp4(const Tensor& residual, const Tensor& n
     require_matrix(k, 1024, tokens, "k");
     require_matrix(v, 1024, tokens, "v");
     detail::validate_nvfp4_weight(projection_weight, "fused rmsnorm attn_input_proj");
+#if !defined(INFERNIX_VOLTA)
     detail::nvfp4_attn_input_fused_rmsnorm_launch(residual, norm_weight, eps, projection_weight, q,
                                                   gate, k, v, workspace, stream);
+#endif
 }
 
 void attn_input_proj(const Tensor& x, const Weight& query_key_gate_value_weight, Tensor& q,

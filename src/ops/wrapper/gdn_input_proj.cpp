@@ -328,6 +328,7 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& qkv, 
         return;
     }
 
+#ifndef INFERNIX_VOLTA
     constexpr std::int32_t kHidden  = 2048;
     constexpr std::int32_t kQkvRows = 8192;
     constexpr std::int32_t kZRows   = 4096;
@@ -338,6 +339,9 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& qkv, 
     require_single_parent_nonoverlap(x, qkv, z);
     require_q8_rowsplit(weight, kRows, "query/key/value/z weight");
     detail::q8_gdn_input_dispatch(x, weight, qkv, z, stream);
+#else
+    throw std::invalid_argument("Volta GDN: the 2048-wide MoE geometry is outside this target");
+#endif
 }
 
 detail::Q4Q5GdnInputConvPlan resolve_q4_q5_conv_plan(std::int32_t tokens, std::int32_t batch_size) {
@@ -504,6 +508,7 @@ void dispatch_single_parent_snapshot(const Tensor& x, const Weight& weight,
         return;
     }
 
+#ifndef INFERNIX_VOLTA
     constexpr std::int32_t kHidden    = 2048;
     constexpr std::int32_t kQueryRows = 2048;
     constexpr std::int32_t kKeyRows   = 2048;
@@ -552,6 +557,9 @@ void dispatch_single_parent_snapshot(const Tensor& x, const Weight& weight,
     detail::gdn_projected_conv_snapshot_launch(scratch.projected, conv_weight, conv_states,
                                                valid_columns, initial_state_slots,
                                                snapshot_base_slots, query, key, value, stream);
+#else
+    throw std::invalid_argument("Volta GDN: the 2048-wide MoE geometry is outside this target");
+#endif
 }
 
 void dispatch_single_parent_record(const Tensor& x, const Weight& weight, const Tensor& conv_weight,
@@ -617,12 +625,14 @@ void dispatch_single_parent_record(const Tensor& x, const Weight& weight, const 
                            });
             return;
         }
+#if !defined(INFERNIX_VOLTA)
         if (plan.schedule == detail::Nvfp4GdnConvScheduleId::SmallTFusedA16) {
             detail::nvfp4_gdn_record_small_t_launch(x, weight, conv_weight, conv_states,
                                                     valid_columns, initial_state_slots, conv_record,
                                                     query, key, value, z, stream);
             return;
         }
+#endif
 
         auto scope = workspace.scope();
         gdn_input_proj(x, weight, conv_record, z, policy, workspace, stream);
@@ -672,6 +682,7 @@ void dispatch_single_parent_record(const Tensor& x, const Weight& weight, const 
         throw std::invalid_argument(
             "gdn_input_proj_conv_record: a verification tree requires an FP8 or NVFP4 parent");
     }
+#ifndef INFERNIX_VOLTA
     constexpr std::int32_t kHidden    = 2048;
     constexpr std::int32_t kQueryRows = 2048;
     constexpr std::int32_t kKeyRows   = 2048;
@@ -710,6 +721,9 @@ void dispatch_single_parent_record(const Tensor& x, const Weight& weight, const 
     detail::q8_gdn_input_splitk_conv_record_launch(x, weight, conv_weight, conv_states,
                                                    valid_columns, initial_state_slots, conv_record,
                                                    query, key, value, z, stream);
+#else
+    throw std::invalid_argument("Volta GDN: the 2048-wide MoE geometry is outside this target");
+#endif
 }
 
 } // namespace
@@ -891,7 +905,10 @@ std::size_t gdn_input_proj_conv_record_workspace_capacity_bytes(
             throw std::logic_error("ReplaySSM record planner admitted NVFP4 decode");
         }
         if (maximum_plan.schedule == detail::Nvfp4GdnConvScheduleId::SmallTFusedA16) { return 0; }
-        return detail::nvfp4_gdn_input_workspace_capacity_bytes(policy, std::max(min_width, 4),
+        const int first_materialized =
+            minimum_plan.schedule == detail::Nvfp4GdnConvScheduleId::Materialized
+                ? min_width : std::max(min_width, 4);
+        return detail::nvfp4_gdn_input_workspace_capacity_bytes(policy, first_materialized,
                                                                 max_width);
     }
     return detail::nvfp4_gdn_input_workspace_capacity_bytes(policy, batch_size * min_width,

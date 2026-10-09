@@ -3417,8 +3417,11 @@ int run_softmax_attention_wide_tests(std::optional<KvCacheStorage> selected) {
     const auto execution = device.execution_view();
     int failures         = 0;
     for (const auto storage :
-         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4M3Row256,
-          KvCacheStorage::Nvfp4Group16, KvCacheStorage::Fp8KeyNvfp4Value}) {
+         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4M3Row256
+#ifndef INFERNIX_VOLTA
+          , KvCacheStorage::Nvfp4Group16, KvCacheStorage::Fp8KeyNvfp4Value
+#endif
+         }) {
         if (selected && storage != *selected) continue;
         const int current = run_wide_copy_cases(execution, storage);
         std::cout << (current ? "FAIL" : "PASS") << " causal_softmax_attention "
@@ -3442,8 +3445,11 @@ int run_softmax_attention_extended_tests(std::optional<KvCacheStorage> selected)
     const auto execution = device.execution_view();
     int failures         = 0;
     for (const auto storage :
-         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4M3Row256,
-          KvCacheStorage::Nvfp4Group16, KvCacheStorage::Fp8KeyNvfp4Value}) {
+         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4M3Row256
+#ifndef INFERNIX_VOLTA
+          , KvCacheStorage::Nvfp4Group16, KvCacheStorage::Fp8KeyNvfp4Value
+#endif
+         }) {
         if (selected && storage != *selected) continue;
         const int current = run_a3_case(execution, kGeometries[0], storage, {1, 300000, 300001, 1720u},
                                         MappingPattern::Fragmented);
@@ -3463,8 +3469,11 @@ int run_softmax_attention_causal_cache_tests(std::optional<KvCacheStorage> selec
     const auto execution = device.execution_view();
     int failures         = 0;
     for (const auto storage :
-         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4M3Row256,
-          KvCacheStorage::Nvfp4Group16, KvCacheStorage::Fp8KeyNvfp4Value}) {
+         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4M3Row256
+#ifndef INFERNIX_VOLTA
+          , KvCacheStorage::Nvfp4Group16, KvCacheStorage::Fp8KeyNvfp4Value
+#endif
+         }) {
         if (selected && storage != *selected) continue;
         const auto start = std::chrono::steady_clock::now();
         std::cout << "RUN causal_softmax_attention " << cache_name(storage) << std::endl;

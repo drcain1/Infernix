@@ -115,7 +115,13 @@ infernix_add_test(infernix_qwen3_5_dflash2_real_test
 
 # DFlash2 tree verification at K=7 over every batch-size route, on the INT8, K8V4, NVFP4, VQ2 and
 # K4V2 caches.
-foreach(kv IN ITEMS int8 k8v4 nvfp4 vq2 k4v2)
+set(infernix_tree_kv_formats int8)
+set(infernix_tree_greedy_kv_formats)
+if(NOT INFERNIX_VOLTA)
+  list(APPEND infernix_tree_kv_formats k8v4 nvfp4 vq2 k4v2)
+  list(APPEND infernix_tree_greedy_kv_formats k8v4 nvfp4 vq2 k4v2)
+endif()
+foreach(kv IN LISTS infernix_tree_kv_formats)
   add_test(NAME infernix_qwen3_5_dflash2_tree_${kv}_real_test
     COMMAND infernix_qwen3_5_dflash2_real_test 7 1 1 4 ${kv} 0 3 16,12,12,10)
   list(APPEND infernix_qwen3_5_tree_real_tests infernix_qwen3_5_dflash2_tree_${kv}_real_test)
@@ -128,7 +134,7 @@ infernix_add_test(infernix_qwen3_5_dflash2_tree_greedy_real_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_engine_dflash2_tree_greedy_real.cpp"
   LIBRARIES infernix_engine)
 
-foreach(kv IN ITEMS k8v4 nvfp4 vq2 k4v2)
+foreach(kv IN LISTS infernix_tree_greedy_kv_formats)
   add_test(NAME infernix_qwen3_5_dflash2_tree_greedy_${kv}_real_test
     COMMAND infernix_qwen3_5_dflash2_tree_greedy_real_test ${kv})
   list(APPEND infernix_qwen3_5_tree_real_tests infernix_qwen3_5_dflash2_tree_greedy_${kv}_real_test)
@@ -141,6 +147,7 @@ infernix_add_test(infernix_qwen3_5_dflash_prefill_real_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_dflash_prefill_real.cpp"
   LIBRARIES infernix_model_runtime infernix_model_loading infernix_core)
 
+if(NOT INFERNIX_VOLTA)
 infernix_add_test(infernix_qwen3_5_moe_real_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_engine_moe_real.cpp"
   LIBRARIES infernix_engine)
@@ -148,6 +155,8 @@ infernix_add_test(infernix_qwen3_5_moe_real_test
 infernix_add_test(infernix_qwen3_5_dflash_real_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_engine_dflash_real.cpp"
   LIBRARIES infernix_engine)
+
+endif()
 
 infernix_add_test(infernix_tool_call_parser_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/../../test_tool_call_parser.cpp"
@@ -174,9 +183,11 @@ set(infernix_qwen3_5_real_tests
   infernix_qwen3_5_score_real_test
   infernix_qwen3_5_vision_workspace_test
   infernix_qwen3_5_dflash2_real_test
-  infernix_qwen3_5_dflash_prefill_real_test
-  infernix_qwen3_5_moe_real_test
-  infernix_qwen3_5_dflash_real_test)
+  infernix_qwen3_5_dflash_prefill_real_test)
+if(NOT INFERNIX_VOLTA)
+  list(APPEND infernix_qwen3_5_real_tests
+    infernix_qwen3_5_moe_real_test infernix_qwen3_5_dflash_real_test)
+endif()
 set_tests_properties(${infernix_qwen3_5_real_tests} PROPERTIES
   SKIP_RETURN_CODE 77
   RUN_SERIAL TRUE

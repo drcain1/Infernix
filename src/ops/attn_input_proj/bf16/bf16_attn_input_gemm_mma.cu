@@ -1,3 +1,15 @@
+#if defined(INFERNIX_VOLTA)
+#include "ops/linear/volta/bf16.cuh"
+#include "ops/linear/common/output.cuh"
+#include "ops/attn_input_proj/bf16/bf16_attn_input_plan.h"
+namespace infernix::ops::detail {
+void bf16_attn_input_mma_launch(const Tensor& x,const Weight& w,Tensor& q,Tensor& gate,Tensor& k,Tensor& v,cudaStream_t stream){
+    volta_bf16_projection(x,w,LinearBf16SegmentedOutput<6144,1024,6144,1024>{{
+        static_cast<__nv_bfloat16*>(q.data),static_cast<__nv_bfloat16*>(k.data),
+        static_cast<__nv_bfloat16*>(gate.data),static_cast<__nv_bfloat16*>(v.data)}},stream);
+}
+}
+#else
 #include "ops/linear/bf16/bf16_instances.cuh"
 #include "ops/linear/bf16/bf16_template_launch.cuh"
 #include "ops/attn_input_proj/bf16/bf16_attn_input_plan.h"
@@ -35,3 +47,5 @@ void bf16_attn_input_mma_launch(const Tensor& x, const Weight& weight, Tensor& q
         tma.template operator()<Bf16A16TmaR64T128K64S2>();
 }
 } // namespace infernix::ops::detail
+
+#endif

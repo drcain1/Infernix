@@ -13,7 +13,6 @@ target_link_libraries(infernix_runtime_support PUBLIC infernix_core PRIVATE infe
 # Public Engine and common contracts; model execution remains in the model layer.
 add_library(infernix_engine STATIC
   engine/model_instance.cpp
-  engine/qwen4_exp_instance.cpp
   contract/sampling.cpp
   engine/engine.cpp
 )
@@ -28,3 +27,7 @@ target_link_libraries(infernix_engine PRIVATE
   infernix_text
   infernix_media_decode)
 add_library(infernix::engine ALIAS infernix_engine)
+
+if(NOT INFERNIX_VOLTA)
+  target_sources(infernix_engine PRIVATE engine/qwen4_exp_instance.cpp)
+endif()

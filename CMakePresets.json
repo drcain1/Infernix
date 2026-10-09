@@ -15,6 +15,13 @@
       }
     },
     {
+      "name": "v100",
+      "displayName": "Volta V100 Qwen 27B products (CUDA 12.9)",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-v100",
+      "cacheVariables": { "CMAKE_CUDA_ARCHITECTURES": "70" }
+    },
+    {
       "name": "dev",
       "displayName": "Release products, tests and benchmarks",
       "inherits": "release",
@@ -26,6 +33,7 @@
   ],
   "buildPresets": [
     { "name": "release", "configurePreset": "release" },
+    { "name": "v100", "configurePreset": "v100" },
     { "name": "dev", "configurePreset": "dev" }
   ],
   "testPresets": [

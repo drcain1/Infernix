@@ -26,7 +26,7 @@ inline constexpr std::int32_t kEmbedGatherFp8D             = 5120;
 template <int BlocksPerToken, int Threads>
 __launch_bounds__(Threads) __global__
     void embed_gather_fp8_kernel(const std::int32_t* ids, const std::uint8_t* codes,
-                                 const __nv_bfloat16* scales, __nv_bfloat16* out) {
+                                 const __nv_bfloat16* scales, __nv_bfloat16* out, bool volta_packed) {
     pdl::enter();
     static_assert(kEmbedGatherFp8D % BlocksPerToken == 0);
     constexpr int kValuesPerBlock = kEmbedGatherFp8D / BlocksPerToken;
@@ -44,7 +44,11 @@ __launch_bounds__(Threads) __global__
     for (int word_index = static_cast<int>(threadIdx.x); word_index < kWordsPerBlock;
          word_index += Threads) {
         const int offset    = split_offset + word_index * 4;
-        const unsigned word = *reinterpret_cast<const unsigned*>(code_row + offset);
+        const int lane=row%32/8*4+row%4+row%8/4*16;
+        const auto* address=volta_packed ? codes+
+            (((static_cast<std::int64_t>(row/32)*(kEmbedGatherFp8D/128)+offset/128)*8+offset%128/16)*32+lane)*16+offset%16
+            : code_row+offset;
+        const unsigned word = *reinterpret_cast<const unsigned*>(address);
 #pragma unroll
         for (int pair = 0; pair < 2; ++pair) {
             __nv_fp8x2_e4m3 values;

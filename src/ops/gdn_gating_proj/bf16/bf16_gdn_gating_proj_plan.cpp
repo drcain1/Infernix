@@ -27,6 +27,14 @@ struct RouteSpec {
     Bf16GdnGatingScheduleId schedule;
 };
 
+#ifdef INFERNIX_VOLTA
+// The narrow SIMT tile also covers prefill by tiling the token axis. Volta's
+// software BF16 MMA route spends most of its work exchanging scalar fragments.
+constexpr std::array<RouteSpec, 2> k27Routes{{
+    {{1, 1}, Bf16GdnGatingScheduleId::GemvPairedRows},
+    {{2, kAnyCols}, Bf16GdnGatingScheduleId::SmallTSplit10},
+}};
+#else
 constexpr std::array<RouteSpec, 6> k27Routes{{
     {{1, 1}, Bf16GdnGatingScheduleId::GemvPairedRows},
     {{2, 8}, Bf16GdnGatingScheduleId::SmallTSplit10},
@@ -37,6 +45,7 @@ constexpr std::array<RouteSpec, 6> k27Routes{{
     {{2049, 4096}, Bf16GdnGatingScheduleId::MmaCooperativeSplit2},
     {{4097, kAnyCols}, Bf16GdnGatingScheduleId::MmaUnsplit},
 }};
+#endif
 
 constexpr std::array<RouteSpec, 5> k35Routes{{
     // RTX 5090/170-SM performance policy: this progression keeps the preferred full grid near
@@ -123,7 +132,11 @@ bool candidate_is_legal(Bf16GdnGatingScheduleId schedule,
         case Bf16GdnGatingScheduleId::GemvPairedRows:
             return problem.cols == 1;
         case Bf16GdnGatingScheduleId::SmallTSplit10:
+#ifdef INFERNIX_VOLTA
+            return problem.cols >= 2;
+#else
             return problem.cols >= 2 && problem.cols <= 8;
+#endif
         case Bf16GdnGatingScheduleId::MmaCooperativeSplit8:
         case Bf16GdnGatingScheduleId::MmaCooperativeSplit4:
         case Bf16GdnGatingScheduleId::MmaCooperativeSplit2:

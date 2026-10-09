@@ -1,9 +1,16 @@
+# The Volta dispatcher uses QPN or predicated SIMT. Keep the generic MMA launcher
+# for dynamic grouped convolution, which owns a separate finite composition.
 target_sources(infernix_ops PRIVATE
-  "${CMAKE_CURRENT_LIST_DIR}/q8_sliced_k_mma.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q8_mma.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q8_simt.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/q8_gemv.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q8_dispatch.cpp"
+)
+if(INFERNIX_VOLTA)
+  target_sources(infernix_ops PRIVATE "${CMAKE_CURRENT_LIST_DIR}/q8_volta_qpn_gemm.cu")
+else()
+target_sources(infernix_ops PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/q8_sliced_k_mma.cu"
+  "${CMAKE_CURRENT_LIST_DIR}/q8_gemv.cu"
   "${CMAKE_CURRENT_LIST_DIR}/shapes/n1024_k2048.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/shapes/n1024_k5120.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/shapes/n10240_k2560.cu"
@@ -38,3 +45,5 @@ target_sources(infernix_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/shapes/n10240_k320.cu"
   "${CMAKE_CURRENT_LIST_DIR}/shapes/n2560_k640.cu"
 )
+
+endif()

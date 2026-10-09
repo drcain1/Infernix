@@ -34,3 +34,7 @@ set_tests_properties(
 add_test(NAME infernix_artifact_flash_next_interop_test
   COMMAND ${Python3_EXECUTABLE} -B "${CMAKE_CURRENT_LIST_DIR}/flash_next_interop.py"
     $<TARGET_FILE:infernix_artifact_reader_test>)
+
+add_test(NAME infernix_artifact_volta_interop_test
+  COMMAND ${Python3_EXECUTABLE} -B "${CMAKE_CURRENT_LIST_DIR}/volta_interop.py"
+    $<TARGET_FILE:infernix_artifact_reader_test>)

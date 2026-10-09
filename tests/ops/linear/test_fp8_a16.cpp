@@ -68,6 +68,7 @@ int run_fp8_a16() {
         vocabulary_invocations.push_back({t, CallForm::Policy, ops::LinearPolicy::A16Only, true});
     failures += run_shape("FP8_A16", ActivationCompute::A16, make_fp8_weight,
                           {248320, 5120, 823U, Comparison::Sampled, true, vocabulary_invocations});
+#ifndef INFERNIX_VOLTA
     constexpr std::array vocabulary_policies{
         ops::LinearPolicy::A16Only,
         ops::LinearPolicy::AllowA8,
@@ -86,6 +87,7 @@ int run_fp8_a16() {
             ++failures;
         }
     }
+#endif
     const auto residual6144_invocations = a16_capacity_calls();
     failures += run_shape("FP8_A16", ActivationCompute::A16, make_fp8_weight,
                           {5120, 6144, 827U, Comparison::Sampled, true, residual6144_invocations});

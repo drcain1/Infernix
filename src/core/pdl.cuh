@@ -29,8 +29,10 @@ launch_dependent(const LaunchConfig& launch, void (*kernel)(KernelArgs...), Call
     config.blockDim         = launch.block;
     config.dynamicSmemBytes = launch.dynamic_smem_bytes;
     config.stream           = launch.stream;
+#if !defined(INFERNIX_VOLTA)
     config.attrs            = &attribute;
     config.numAttrs         = 1;
+#endif
 
     return cudaLaunchKernelEx(&config, kernel, std::forward<CallArgs>(args)...);
 }
@@ -38,12 +40,16 @@ launch_dependent(const LaunchConfig& launch, void (*kernel)(KernelArgs...), Call
 // Whether a launch on this stream becomes a programmatic dependent of the preceding kernel: only
 // while the stream captures a CUDA Graph, so eager launches keep full stream serialization.
 [[nodiscard]] inline bool graph_dependent(cudaStream_t stream) noexcept {
+#if defined(INFERNIX_VOLTA)
+    return false; // Volta graph edges retain ordinary stream ordering.
+#else
     cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
     if (cudaStreamIsCapturing(stream, &status) != cudaSuccess) {
         (void)cudaGetLastError();
         return false;
     }
     return status == cudaStreamCaptureStatusActive;
+#endif
 }
 
 // Launches a kernel that implements the consumer protocol below (enter() before touching anything
@@ -85,10 +91,18 @@ template <class... KernelArgs, class... CallArgs>
 
 // Every producer CTA must call this at least once or exit. This enables dependent scheduling but
 // does not make producer writes visible to the consumer.
-__device__ __forceinline__ void trigger_dependents() { cudaTriggerProgrammaticLaunchCompletion(); }
+__device__ __forceinline__ void trigger_dependents() {
+#if __CUDA_ARCH__ >= 900
+    cudaTriggerProgrammaticLaunchCompletion();
+#endif
+}
 
 // Call on every consumer control path before its first access to producer-dependent data.
-__device__ __forceinline__ void wait_for_dependencies() { cudaGridDependencySynchronize(); }
+__device__ __forceinline__ void wait_for_dependencies() {
+#if __CUDA_ARCH__ >= 900
+    cudaGridDependencySynchronize();
+#endif
+}
 
 // Consumer protocol for launch_consumer(). Call one of these in every thread, before any access
 // other than reading immutable weights; a CTA that returns early must still have called it, so

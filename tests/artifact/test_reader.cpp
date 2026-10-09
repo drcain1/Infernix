@@ -112,6 +112,30 @@ void geometry_and_views() {
                 context.input_scale_divisor == 4 && nv_parent.weight_scale_divisor == 2,
             "per-use native parameters changed the parent");
 
+    // Persistent Volta fragments preserve logical regions and own complete-parent scales.
+    std::vector<std::byte> volta_bytes(64 * 128 / 2 + 64 * 128 / 16 + 4);
+    WeightParent volta_parent{weight_geometry(QType::NVFP4, QuantLayout::VoltaQpn,
+                                               std::array<std::uint64_t, 2>{64, 128}),
+                               volta_bytes.data(), 3.125F};
+    require(volta_parent.geometry.bytes == volta_bytes.size() &&
+                weight_scale_offset(volta_parent.geometry, 4, 0) == 4096 + 16 &&
+                weight_scale_offset(volta_parent.geometry, 8, 1) == 4096 + 32 + 4 &&
+                weight_scale_offset(volta_parent.geometry, 32, 0) == 4096 + 256,
+            "Volta scale fragments do not preserve logical rows/groups");
+    const WeightView volta_view{{64, 128}, {{&volta_parent, 0, 64 * 128}}};
+    const auto volta_weight = native_weight(volta_view);
+    require(volta_weight.layout == QuantLayout::VoltaQpn &&
+                volta_weight.scales == volta_bytes.data() + 4096 &&
+                volta_weight.weight_scale_divisor == 3.125F,
+            "Volta native binding lost its representation");
+    rejects<std::invalid_argument>([&] {
+        (void)native_weight(WeightView{{32, 128}, {{&volta_parent, 0, 32 * 128}}});
+    }, "Volta complete-parent ABI accepted a partial parent");
+    rejects<std::invalid_argument>([&] {
+        (void)weight_geometry(QType::NVFP4, QuantLayout::VoltaQpn,
+                              std::array<std::uint64_t, 2>{32, 64});
+    }, "Volta accepted an incomplete K fragment");
+
     // Flash-Next expert banks: sizes equal tools/artifact/layouts.py's.
     const auto bank = weight_geometry(QType::NVFP4_MUL, QuantLayout::ExpertRg16,
                                       std::array<std::uint64_t, 3>{3, 64, 32});

@@ -128,6 +128,9 @@ int run_shape(std::int32_t n, std::int32_t k, std::int32_t first_a8, std::uint32
     const std::int32_t kMaximumTokens = wide_only ? 64 : 1025;
     quantized_weight::PackedWeight host_weight =
         quantized_weight::make_patterned_weight(QType::FP8_E4M3FN_ROW_BF16, n, k, seed);
+#ifdef INFERNIX_VOLTA
+    host_weight = quantized_weight::pack_volta_fixture(std::move(host_weight));
+#endif
     const std::vector<std::int32_t> rows = sampled_indices(n);
     const std::vector<float> materialized_weight =
         quantized_weight::materialize_rows_fp32(host_weight, rows);
@@ -190,8 +193,16 @@ int run_shape(std::int32_t n, std::int32_t k, std::int32_t first_a8, std::uint32
             device_activation.copy_from_host(activation.data(), device_activation.bytes());
         }
 
+#ifdef INFERNIX_VOLTA
+
+        const bool a8 = false; // Volta executes the A16 arithmetic profile.
+
+#else
+
         const bool a8 =
             invocation.policy == ops::LinearPolicy::AllowA8 && invocation.tokens >= first_a8;
+
+#endif
         const std::string label = "FP8 linear_add [" + std::to_string(n) + "," + std::to_string(k) +
                                   "] " + (a8 ? "A8" : "A16") +
                                   " T=" + std::to_string(invocation.tokens);
@@ -251,8 +262,17 @@ int run_shape(std::int32_t n, std::int32_t k, std::int32_t first_a8, std::uint32
         QType::FP8_E4M3FN_ROW_BF16, n, k, ops::LinearPolicy::AllowA8, 1, 1024);
     const std::size_t exact_1024 = ops::linear_add_workspace_capacity_bytes(
         QType::FP8_E4M3FN_ROW_BF16, n, k, ops::LinearPolicy::AllowA8, 1024, 1024);
+#ifdef INFERNIX_VOLTA
+    std::size_t hot_peak = 0;
+    for (int width = 1; width <= 48; ++width)
+        hot_peak = std::max(hot_peak, ops::linear_add_workspace_capacity_bytes(
+            QType::FP8_E4M3FN_ROW_BF16, n, k, ops::LinearPolicy::AllowA8, width, width));
+    if (hot_interval != hot_peak || through_1024 < hot_peak ||
+        through_1024 < exact_1024 || a16_interval < through_1024) {
+#else
     if (a16_interval != 0 || pre_boundary != 0 || hot_interval != exact_48 ||
         through_1024 != exact_1024 || exact_1024 <= exact_48) {
+#endif
         std::cerr << "FP8 linear_add [" << n << ',' << k
                   << "]: workspace interval contract mismatch\n";
         ++failures;

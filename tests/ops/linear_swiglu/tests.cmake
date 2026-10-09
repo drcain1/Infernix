@@ -4,6 +4,12 @@ infernix_test_includes(infernix_linear_swiglu_test_support)
 infernix_op_oracle_options(infernix_linear_swiglu_test_support)
 target_link_libraries(infernix_linear_swiglu_test_support PUBLIC infernix_ops)
 
+if(INFERNIX_VOLTA)
+  infernix_add_op_test(infernix_linear_swiglu_volta_test
+    SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_volta.cpp"
+    LIBRARIES infernix_linear_swiglu_test_support)
+endif()
+
 infernix_add_op_test(infernix_linear_swiglu_q4_a16_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_q4_a16.cpp"
   LIBRARIES infernix_linear_swiglu_test_support)

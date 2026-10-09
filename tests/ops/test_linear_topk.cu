@@ -98,6 +98,9 @@ FixtureWeight make_fp8() {
     result.weight.k                = kHidden;
     result.weight.group            = kHidden;
     result.weight.layout           = QuantLayout::RowScale;
+#ifdef INFERNIX_VOLTA
+    result.weight.layout           = QuantLayout::VoltaQpn;
+#endif
     result.weight.scale_dtype      = DType::BF16;
     result.weight.scale_ne[0]      = kFullRows;
     result.weight.scale_nb[0]      = 2;
@@ -163,10 +166,21 @@ void patch_rowsplit_row(FixtureWeight& fixture, QType qtype, std::int32_t row, f
 }
 
 void patch_fp8_row(FixtureWeight& fixture, std::int32_t row, float factor) {
+#ifdef INFERNIX_VOLTA
+    const std::size_t base = static_cast<std::size_t>(row / 32) * 32 * kHidden;
+    std::vector<std::uint8_t> tile(32 * kHidden);
+    cuda_check(cudaMemcpy(tile.data(), static_cast<const std::uint8_t*>(fixture.payload.p) + base,
+                          tile.size(), cudaMemcpyDeviceToHost), "read FP8 fixture tile");
+    const int lane = row % 32 / 8 * 4 + row % 4 + row % 8 / 4 * 16;
+    for (int k = 0; k < kHidden; ++k)
+        tile[((k / 128 * 8 + k % 128 / 16) * 32 + lane) * 16 + k % 16] = fp8_code(k);
+    fixture.payload.copy_from_host(tile.data(), tile.size(), base);
+#else
     std::vector<std::uint8_t> codes(kHidden);
     for (std::int32_t k = 0; k < kHidden; ++k) { codes[static_cast<std::size_t>(k)] = fp8_code(k); }
     fixture.payload.copy_from_host(codes.data(), codes.size(),
                                    static_cast<std::size_t>(row) * kHidden);
+#endif
     const std::uint16_t scale = f32_to_bf16(factor);
     fixture.payload.copy_from_host(&scale, sizeof(scale),
                                    static_cast<std::size_t>(fixture.scale_offset) +

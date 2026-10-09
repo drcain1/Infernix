@@ -41,6 +41,10 @@ Nvfp4WeightGeometry validate_nvfp4_weight(const Weight& weight, const char* oper
         throw std::invalid_argument(std::string(operation) + ": NVFP4 requires N%128=0 and K%64=0");
     }
 
+    if (weight.layout == QuantLayout::VoltaQpn && (weight.n % 32 || weight.k % 128)) {
+        throw std::invalid_argument(std::string(operation) + ": incomplete Volta fragment tiles");
+    }
+
     const std::uint64_t elements = checked_mul(static_cast<std::uint64_t>(weight.n),
                                                static_cast<std::uint64_t>(weight.k), operation);
     Nvfp4WeightGeometry geometry{};
@@ -51,7 +55,11 @@ Nvfp4WeightGeometry validate_nvfp4_weight(const Weight& weight, const char* oper
         checked_add(checked_add(geometry.scale_plane_offset, geometry.scale_plane_bytes, operation),
                     sizeof(float), operation);
 
-    if (weight.qtype != QType::NVFP4 || weight.layout != QuantLayout::BlockScaleK16M128x4 ||
+    if (weight.qtype != QType::NVFP4 || (weight.layout != QuantLayout::BlockScaleK16M128x4
+#if defined(INFERNIX_VOLTA)
+        && weight.layout != QuantLayout::VoltaQpn
+#endif
+        ) ||
         weight.scale_dtype != DType::FP8_E4M3FN || weight.group_size != 16 || weight.group != 16 ||
         weight.ndim != 2 || weight.shape[0] != weight.n || weight.shape[1] != weight.k ||
         weight.padded_shape[0] != weight.n || weight.padded_shape[1] != weight.k ||

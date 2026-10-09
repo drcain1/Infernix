@@ -267,7 +267,15 @@ int run_nvfp4_case(DevicePackedWeight& parent, std::int32_t tokens, ops::LinearP
     ops::gdn_input_proj(x, parent.view(), qkv_output, z_output, policy, workspace, nullptr);
     cuda_synchronize();
 
+#ifdef INFERNIX_VOLTA
+
+    const bool a4 = false; // Volta executes the A16 arithmetic profile.
+
+#else
+
     const bool a4                       = policy == ops::LinearPolicy::AllowA4;
+
+#endif
     const ReductionCriterion& criterion = a4 ? kGdnInputProjA4Tolerance : kGdnInputProjA16Tolerance;
     const std::string suffix =
         std::string(" NVFP4 ") + (a4 ? "A4" : "A16") + " T=" + std::to_string(tokens);
@@ -369,9 +377,13 @@ int run_fp8_case(DevicePackedWeight& parent, std::int32_t tokens, ops::LinearPol
         else
             launch();
         cuda_synchronize(context.stream);
+#ifdef INFERNIX_VOLTA
+        const bool a8 = false; // Volta executes the A16 arithmetic profile.
+#else
         const bool a8 =
             (policy == ops::LinearPolicy::AllowA8 || policy == ops::LinearPolicy::AllowA4) &&
             tokens >= 17;
+#endif
         const ReductionCriterion& criterion =
             a8 ? kFp8GdnInputProjA8Tolerance : kFp8GdnInputProjA16Tolerance;
         const std::int32_t sample_count = a8 ? kA8SampleRows : 7;
@@ -393,7 +405,9 @@ int run_fp8_case(DevicePackedWeight& parent, std::int32_t tokens, ops::LinearPol
         failures += verify_output_range_sampled("gdn z" + suffix, z, kZRows, 0, kZRows, parent.host,
                                                 kQkvRows, activation, kHidden, tokens, criterion,
                                                 sample_count);
-        if (workspace.peak_used() != capacity) {
+        // The convenience overload receives no arena; only the policy overload
+        // consumes the queried temporary storage.
+        if (workspace.peak_used() != (convenience ? 0 : capacity)) {
             std::cerr << "gdn workspace" << suffix << ": query/execution high-water mismatch\n";
             ++failures;
         }
@@ -428,8 +442,16 @@ int run_fp8() {
         QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, 1024, 1024);
     const std::size_t a16 = ops::gdn_input_proj_workspace_capacity_bytes(
         QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::A16Only, 1, 2048);
+#ifdef INFERNIX_VOLTA
+    std::size_t interval_max = 0;
+    for (int width = 1; width <= 48; ++width)
+        interval_max = std::max(interval_max, ops::gdn_input_proj_workspace_capacity_bytes(
+            QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, ops::LinearPolicy::AllowA8, width, width));
+    if (hot_interval != interval_max || exact_1024 < forty_eight || a16 < exact_1024) {
+#else
     if (one != 0 || sixteen != 0 || seventeen == 0 || forty_eight <= seventeen ||
         hot_interval != forty_eight || exact_1024 <= forty_eight || a16 != 0) {
+#endif
         std::cerr << "FP8 gdn input workspace interval contract mismatch\n";
         ++failures;
     }
@@ -457,7 +479,9 @@ int main() {
 
     int failures = 0;
     failures += run_q4_q5();
+#ifndef INFERNIX_VOLTA
     failures += run_q8();
+#endif
     failures += run_nvfp4();
     failures += run_fp8();
     std::cout << (failures == 0 ? "OK" : "FAIL") << " gdn_input_proj\n";

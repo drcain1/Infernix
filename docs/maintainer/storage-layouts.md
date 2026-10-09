@@ -15,6 +15,7 @@ The storage registry contains exactly these identities:
 | `row_split_k128_v1` | tensor layout | `q4_g64_fp16`, `q5_g64_fp16`, `q6_g64_fp16`, `q8_g32_fp16` | rank 2 `[N,K]` | 256 bytes |
 | `block_scale_k16_m128x4_v1` | tensor layout | `nvfp4` | rank 2 `[N,K]`, `N % 128 == 0`, `K % 64 == 0` | 256 bytes |
 | `row_scale_v1` | tensor layout | `fp8_e4m3fn_row_bf16` | rank 2 `[N,K]` | 256 bytes |
+| `volta_qpn_v1` | tensor layout | `fp8_e4m3fn_row_bf16`, `nvfp4` | rank 2 `[N,K]`, `N % 32 == 0`, `K % 128 == 0` | 256 bytes |
 | `nvfp4_expert_rg16_v1` | tensor layout | `nvfp4_mul` | rank 3 `[E,H,I]`, `H % 16 == 0`, `I % 16 == 0` | 4096 bytes |
 | `raw_bytes_v1` | resource encoding | not applicable | nonempty byte string | 1 byte |
 
@@ -390,6 +391,7 @@ Layout decoding yields only persistent logical words:
   matrix-level FP32 weight divisor;
 - `row_scale_v1` yields the natural row-major E4M3FN code words and one BF16 multiplier per logical
   row;
+- `volta_qpn_v1` undoes the fragment permutation to yield those same FP8 or NVFP4 numeric words;
 - `nvfp4_expert_rg16_v1` yields, per expert, the gate, up and down E2M1 code words and E4M3FN
   scale words in natural `[rows, K]` order (undoing the unit packing and row interleave), and the
   three FP32 multipliers;
@@ -398,6 +400,35 @@ Layout decoding yields only persistent logical words:
 Dequantized values follow the reconstruction rule in `tensor-formats.md`. This document does
 not select a quantization encoder, output dtype, accumulation dtype, kernel, runtime device layout,
 or model consumer.
+
+## 9. `volta_qpn_v1`
+
+This offline layout places FP8 and NVFP4 words in the fragment order consumed by Volta's
+FP16 tensor-core projection kernels. It changes no codes, scale words or reconstruction rules.
+The logical matrix has positive shape `[N,K]`, with `N%32=0` and `K%128=0`.
+
+For logical row `r`, define `tile=r//32` and
+`lane=(r%32)//8*4 + r%4 + (r%8)//4*16`. FP8 code `[r,c]` has byte offset:
+
+```text
+(((tile * (K/128) + c/128) * 8 + (c%128)/16) * 32 + lane) * 16 + c%16
+```
+
+Division in these address formulas is integer division. FP8 row scales retain logical row order:
+the BF16 word for row `r` starts at `N*K+2*r`. Total bytes are `N*K+2*N`.
+
+For NVFP4, define `group=(tile*(K/16)+c/16)*32+lane` and
+`j=(c%8)//2+(c%2)*4+((c//8)%2)*8`. Code `[r,c]` occupies nibble `j%2` of byte
+`group*8+j//2`, with nibble zero in the low four bits. This corresponds to logical column order
+`[0,2,4,6,1,3,5,7,8,10,12,14,9,11,13,15]` within each K16 group. Its E4M3FN scale
+is at byte `N*K/2+group`. The original little-endian FP32 weight divisor follows the scale plane.
+Total bytes are `N*K/2+N*K/16+4`.
+
+The geometry makes every plane naturally 256-byte aligned except the trailing divisor. Packing
+and decoding live in `tools/artifact/codecs/volta.py`. `python3.11 -m tools.artifact.pack_volta`
+rewrites a v3 artifact with this layout while preserving its logical bindings and resources. The
+loader uploads the stored bytes; it does not pack weights at runtime. Native FP8/NVFP4 consumers
+require the complete parent, as described below.
 
 ## 10. Logical views and native operands
 

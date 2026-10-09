@@ -58,6 +58,9 @@ struct Plan {
 };
 
 Plan plan_for(HeadProfile profile, int columns) {
+#ifdef INFERNIX_VOLTA
+    return {128,0};
+#else
     if (profile == HeadProfile::Q4Optimized) {
         if (columns <= 16) return {16, 0};
         if (columns <= 32) return {64, 32};
@@ -74,6 +77,7 @@ Plan plan_for(HeadProfile profile, int columns) {
     if (columns <= 112) return {64, 112, 64};
     if (columns <= 120) return {64, 120, 64};
     return {64, 128, 64};
+#endif
 }
 
 void require_matrix(const Tensor& tensor, DType dtype, std::int32_t rows, std::int32_t columns,
@@ -149,6 +153,9 @@ void require_no_weight_overlap(const Weight& head, const Tensor& hidden,
                             &scratch.group_keys,
                             &scratch.secondary_keys,
                             &scratch.group_done,
+#ifdef INFERNIX_VOLTA
+                            &scratch.logits,
+#endif
                             id_map};
     for (const Tensor* tensor : tensors) {
         if (tensor == nullptr) { continue; }
@@ -164,7 +171,11 @@ void require_scratch_nonoverlap(const Tensor& hidden, const Tensor& candidate_id
                                 const detail::LinearTopKWorkspace& scratch) {
     const Tensor* live[]{&hidden, &candidate_ids, &candidate_scores, id_map};
     const Tensor* work[]{&scratch.partial_keys, &scratch.group_keys, &scratch.secondary_keys,
-                         &scratch.group_done};
+                         &scratch.group_done
+#ifdef INFERNIX_VOLTA
+                         ,&scratch.logits
+#endif
+                         };
     for (const Tensor* lhs : live) {
         if (lhs == nullptr) { continue; }
         for (const Tensor* rhs : work) {

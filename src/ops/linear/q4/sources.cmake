@@ -15,3 +15,7 @@ target_sources(infernix_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/shapes/n3456_k1152.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/shapes/n4304_k1152.cpp"
 )
+
+if(INFERNIX_VOLTA)
+  target_sources(infernix_ops PRIVATE "${CMAKE_CURRENT_LIST_DIR}/q4_volta_qpn_gemm.cu")
+endif()

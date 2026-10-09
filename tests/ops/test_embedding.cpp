@@ -448,12 +448,28 @@ struct Fp8Row {
 
 class Fp8Table {
 public:
-    Fp8Table()
-        : code_plane_bytes_(static_cast<std::size_t>(kVocab) * kFp8D),
+    explicit Fp8Table(bool volta_packed = false)
+        : volta_packed_(volta_packed), code_plane_bytes_(static_cast<std::size_t>(kVocab) * kFp8D),
           scale_offset_(align_up(code_plane_bytes_, 256)),
           payload_(scale_offset_ + static_cast<std::size_t>(kVocab) * 2) {
         for (const std::int32_t row : dflash2_fixture_ids()) {
             if (find(row) == nullptr) add_row(row);
+        }
+        if (volta_packed_) {
+            std::vector<int> tiles;
+            for (const auto& row : rows_)
+                if (std::find(tiles.begin(), tiles.end(), row.id / 32) == tiles.end())
+                    tiles.push_back(row.id / 32);
+            for (int tile_id : tiles) {
+                std::vector<std::uint8_t> tile(32 * kFp8D, 0);
+                for (const auto& row : rows_) {
+                    if (row.id / 32 != tile_id) continue;
+                    for (int k = 0; k < kFp8D; ++k)
+                        tile[packed_offset(row.id, k)] = row.codes[k];
+                }
+                payload_.copy_from_host(tile.data(), tile.size(),
+                    static_cast<std::size_t>(tile_id) * tile.size());
+            }
         }
     }
 
@@ -461,7 +477,7 @@ public:
         auto* base = static_cast<std::uint8_t*>(payload_.data());
         Weight result{};
         result.qtype            = QType::FP8_E4M3FN_ROW_BF16;
-        result.layout           = QuantLayout::RowScale;
+        result.layout           = volta_packed_ ? QuantLayout::VoltaQpn : QuantLayout::RowScale;
         result.scale_dtype      = DType::BF16;
         result.payload          = base;
         result.payload_bytes    = payload_.bytes();
@@ -504,7 +520,14 @@ public:
         int failures = payload_.verify_guards(label);
         for (const Fp8Row& row : rows_) {
             std::vector<std::uint8_t> got(row.codes.size());
-            payload_.copy_to_host(got.data(), got.size(), static_cast<std::size_t>(row.id) * kFp8D);
+            if (volta_packed_) {
+                std::vector<std::uint8_t> tile(32 * kFp8D);
+                payload_.copy_to_host(tile.data(), tile.size(),
+                    static_cast<std::size_t>(row.id / 32) * tile.size());
+                for (int k = 0; k < kFp8D; ++k) got[k] = tile[packed_offset(row.id, k)];
+            } else {
+                payload_.copy_to_host(got.data(), got.size(), static_cast<std::size_t>(row.id) * kFp8D);
+            }
             failures += verify_exact(label, got, row.codes);
             std::uint8_t scale_bytes[2]{};
             payload_.copy_to_host(scale_bytes, sizeof(scale_bytes),
@@ -520,6 +543,11 @@ public:
     }
 
 private:
+    static std::size_t packed_offset(int row, int k) {
+        const int lane = row % 32 / 8 * 4 + row % 4 + row % 8 / 4 * 16;
+        return ((k / 128 * 8 + k % 128 / 16) * 32 + lane) * 16 + k % 16;
+    }
+    bool volta_packed_;
     const Fp8Row* find(std::int32_t id) const {
         const auto it = std::find_if(rows_.begin(), rows_.end(),
                                      [id](const Fp8Row& row) { return row.id == id; });
@@ -640,8 +668,8 @@ int test_q8() {
     return failures;
 }
 
-int test_fp8() {
-    Fp8Table table;
+int test_fp8(bool volta_packed = false) {
+    Fp8Table table(volta_packed);
     int failures = 0;
     failures += qualify_dflash2("FP8 [248320,5120]", table, 4);
     const std::vector<std::int32_t> ids = {0};
@@ -726,6 +754,9 @@ int main() {
         failures += test_q6();
         failures += test_q8();
         failures += test_fp8();
+#ifdef INFERNIX_VOLTA
+        failures += test_fp8(true);
+#endif
     } catch (const std::exception& error) {
         std::cerr << "embedding test exception: " << error.what() << '\n';
         return 1;

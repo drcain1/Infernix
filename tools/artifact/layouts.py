@@ -123,6 +123,10 @@ NVFP4_EXPERT_RG16_V1 = Layout(
     frozenset(("nvfp4_mul",)),
 )
 
+VOLTA_QPN_V1 = Layout(
+    "volta_qpn_v1", 256, frozenset(("nvfp4", "fp8_e4m3fn_row_bf16"))
+)
+
 LAYOUTS = MappingProxyType(
     {
         layout.name: layout
@@ -132,6 +136,7 @@ LAYOUTS = MappingProxyType(
             BLOCK_SCALE_K16_M128X4_V1,
             ROW_SCALE_V1,
             NVFP4_EXPERT_RG16_V1,
+            VOLTA_QPN_V1,
         )
     }
 )
@@ -350,4 +355,11 @@ def encoded_size(
         return row_scale_geometry(numeric_spec, shape).payload_bytes
     if layout_spec is NVFP4_EXPERT_RG16_V1:
         return expert_bank_geometry(numeric_spec, shape).payload_bytes
+    if layout_spec is VOLTA_QPN_V1:
+        n, k = _shape(shape, rank=2)
+        if n % 32 or k % 128:
+            raise ValueError("volta_qpn_v1 requires N divisible by 32 and K divisible by 128")
+        if isinstance(numeric_spec, Nvfp4Format):
+            return n * k // 2 + n * k // 16 + 4
+        return n * k + n * 2
     raise ValueError(f"unsupported tensor layout: {layout_spec.name!r}")

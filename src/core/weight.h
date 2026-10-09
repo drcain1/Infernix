@@ -28,6 +28,8 @@ enum class QuantLayout : std::uint16_t {
     // nvfp4_expert_rg16_v1: [experts, hidden, intermediate] banks of 4 KiB-aligned expert
     // records in 144-byte row-group units, then an [experts, 3] FP32 multiplier plane.
     ExpertRg16 = 4,
+    // 32-row Volta MMA fragment tiles; FP8 and NVFP4 retain their numeric codecs.
+    VoltaQpn = 5,
 };
 
 struct Weight {

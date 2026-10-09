@@ -86,7 +86,11 @@ std::string usage_text(const char* argv0) {
            " <model.infernix> (--prompt <text>|--messages <messages.json>)\n"
            "       [--max-context N] [--kv-capacity N|auto] [--prefill-chunk N] [--max-new N]\n"
            "       [--device N]\n"
+#ifdef INFERNIX_VOLTA
+           "       [--kv-dtype bf16|int8|fp8] [--spec mtp|dflash|dflash2 --draft-tokens "
+#else
            "       [--kv-dtype bf16|int8|fp8|nvfp4|k8v4|vq2|k4v2] [--spec mtp|dflash|dflash2 --draft-tokens "
+#endif
            "N]\n"
            "       [--lm-head-draft] [--draft-tree-nodes auto|N] [--draft-tree-paths N]\n"
            "       [--ngram-draft-tokens 1..63] [--ngram-min-match 4..64]\n"
@@ -107,6 +111,11 @@ std::string usage_text(const char* argv0) {
            "Runs one generation: answer content streams to stdout, reasoning and\n"
            "diagnostics to stderr. Sampling defaults come from the loaded model and\n"
            "thinking mode; flags override individual fields.\n"
+#ifdef INFERNIX_VOLTA
+           "V100 build: dense Qwen 27B only; MoE and Flash-Next are unavailable.\n"
+           "Prefill kernel/PV selectors keep the same Volta route; tuning speed\n"
+           "comparisons below describe Blackwell.\n"
+#endif
            "\n"
            "CONTEXT\n"
            "  --max-context N          max context tokens (default 2048)\n"
@@ -141,7 +150,11 @@ std::string usage_text(const char* argv0) {
            "                           Flash-Next, after the expert cache, for the display\n"
            "                           and other programs (auto: 1024 with a display on\n"
            "                           the GPU, else 256)\n"
+#ifdef INFERNIX_VOLTA
+           "  --kv-dtype T             bf16 (default) | int8 | fp8\n"
+#else
            "  --kv-dtype T             bf16 (default) | int8 | fp8 | nvfp4 | k8v4 | vq2 | k4v2\n"
+#endif
            "  --use-original-int8-prefill-kernel\n"
            "                           prefill INT8 KV with the original prompt kernel\n"
            "                           (default: the fast kernel)\n"

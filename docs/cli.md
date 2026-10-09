@@ -5,6 +5,14 @@ download an artifact using the [project README](../README.md) before following t
 
 The examples use Qwen3.8-27B NVFP4 with FP8 KV storage.
 
+The [V100 build](maintainer/build-system.md) places executables in `build-v100/apps/` and supports
+the dense Qwen 27B family with BF16, INT8, or FP8 KV. Use a
+[Volta-packed artifact](weight-conversion.md#v100-storage-layout). On this target, A4/A8 activation
+permissions use FP16 tensor-core arithmetic with FP32 accumulation, and prefill chunks retain
+their requested multiple of 128 rather than being rounded to Blackwell attention waves.
+The alternative prompt-kernel and 8-bit PV switches do not select different Volta kernels.
+MoE and Flash-Next require the Blackwell build.
+
 ## Text input
 
 ```bash

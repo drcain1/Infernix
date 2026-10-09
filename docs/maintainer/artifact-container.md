@@ -386,6 +386,7 @@ the same, and the generation method is recorded in the recipe/provenance.
 | row_split_k128_v1 | q4_g64_fp16, q5_g64_fp16, q6_g64_fp16, q8_g32_fp16, positive rank-2 `[N,K]` | 256 |
 | block_scale_k16_m128x4_v1 | nvfp4, `N%128=0`, `K%64=0` | 256 |
 | row_scale_v1 | fp8_e4m3fn_row_bf16, positive rank-2 `[N,K]` | 256 |
+| volta_qpn_v1 | fp8_e4m3fn_row_bf16 or nvfp4, `N%32=0`, `K%128=0` | 256 |
 | raw_bytes_v1 | Resource, non-empty byte string | 1 |
 
 Byte packing, planes, internal padding, swizzle and the encoded-size formulas are defined by the

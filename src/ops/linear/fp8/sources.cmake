@@ -1,3 +1,10 @@
+if(INFERNIX_VOLTA)
+  target_sources(infernix_ops PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/fp8_format.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/fp8_volta.cu")
+  return()
+endif()
+
 target_sources(infernix_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/fp8_format.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/fp8_a8.cu"

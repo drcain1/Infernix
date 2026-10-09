@@ -170,7 +170,14 @@ std::uint64_t maximum_main_page_groups(std::uint32_t concurrency, std::uint32_t 
 // at max concurrency 8, the tightest case against this allowance). The allowance keeps 4 MiB per
 // executable plus a fixed 64 MiB for driver and module state.
 constexpr std::size_t kGraphExecutableAllowance = 4ULL * kMiB;
+#if defined(INFERNIX_VOLTA)
+// Cold Volta graph preparation consumed 218 MiB for DFlash2's chain and 250 MiB
+// for its 32-node tree at B=1 on CUDA 12.9 (ordinary/MTP: 6 MiB). Cover graph and
+// driver/module setup before automatic KV sizing, plus the per-executable allowance.
+constexpr std::size_t kGraphDriverAllowance     = 256ULL * kMiB;
+#else
 constexpr std::size_t kGraphDriverAllowance     = 64ULL * kMiB;
+#endif
 
 // Number of executables one family instantiates for one batch size: one per topology class.
 std::uint32_t graph_topology_classes(const std::vector<GraphExecutionProfile>& profiles) {
@@ -479,7 +486,12 @@ WorkspacePlan build_workspace_plan(const SequencePlanImpl& plan) {
                              execution::ffn_workspace_bytes(block.ffn, first, last, false, false)));
         }
         if (!plan.causal_scoring) {
-            linear_scratch(layout, parameters.text.output_head, first, last);
+            // Generation prefill projects only the last hidden column. Reserving the whole
+            // chunk would retain a wide-head dequantization arena that this route never uses.
+            if (phase == qwen3_5::TextPhase::Prefill)
+                linear_scratch(layout, parameters.text.output_head, 1, 1);
+            else
+                linear_scratch(layout, parameters.text.output_head, first, last);
         }
     };
     const auto mtp_post_mixer = [&](WorkspaceLayoutBuilder& layout, int first, int last) {
@@ -986,9 +998,15 @@ void validate_target_options(const execution::Parameters& parameters, DeviceCont
                                         "GDN input projections");
         }
     }
+#if defined(INFERNIX_VOLTA)
+    if (device.compute_capability() != 70) {
+        throw std::invalid_argument("This Qwen3.5 family build requires compute capability 7.0");
+    }
+#else
     if (device.compute_capability() != 120) {
         throw std::invalid_argument("Qwen3.5 family runtime requires compute capability 12.0");
     }
+#endif
     if (options.speculative.ngram_draft_tokens != 0 &&
         ((options.speculative.backend != SpeculativeBackend::DFlash2 &&
           options.speculative.backend != SpeculativeBackend::DFlash &&
@@ -1138,6 +1156,10 @@ PromptAttention prompt_attention(const EngineOptions& options) {
 // run one 128-row CTA of one query head per SM; BF16 KV and the original INT8 and NVFP4 kernels use
 // other tiles.
 bool prefill_attention_runs_waves(const EngineOptions& options) {
+#ifdef INFERNIX_VOLTA
+    // Volta attention bounds query blocks internally; the Blackwell wave size does not apply.
+    return false;
+#else
     switch (options.kv_cache) {
     case KvCacheStorage::Int8Group64: return !options.original_int8_prefill_kernel;
     case KvCacheStorage::Nvfp4Group16: return !options.original_nvfp4_prefill_kernel;
@@ -1148,6 +1170,7 @@ bool prefill_attention_runs_waves(const EngineOptions& options) {
     case KvCacheStorage::BFloat16: return false;
     }
     return false;
+#endif
 }
 } // namespace
 

@@ -24,7 +24,8 @@ void launch_fp8(const Tensor& ids, const Weight& table, Tensor& out, cudaStream_
     CUDA_CHECK(pdl::launch_consumer(
         {dim3(grid), dim3(Threads), 0, stream}, embed_gather_fp8_kernel<BlocksPerToken, Threads>,
         static_cast<const std::int32_t*>(ids.data), static_cast<const std::uint8_t*>(table.qdata),
-        static_cast<const __nv_bfloat16*>(table.scales), static_cast<__nv_bfloat16*>(out.data)));
+        static_cast<const __nv_bfloat16*>(table.scales), static_cast<__nv_bfloat16*>(out.data),
+        table.layout == QuantLayout::VoltaQpn));
 }
 
 template <int Blocks, int Threads>

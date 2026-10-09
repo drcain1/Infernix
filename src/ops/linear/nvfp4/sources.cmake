@@ -1,3 +1,10 @@
+if(INFERNIX_VOLTA)
+  target_sources(infernix_ops PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/nvfp4_format.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/nvfp4_volta.cu")
+  return()
+endif()
+
 target_sources(infernix_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/nvfp4_format.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/nvfp4_a4.cu"
@@ -9,6 +16,8 @@ target_sources(infernix_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/shapes/n5120_k17408.cu"
 )
 
+if(NOT INFERNIX_VOLTA)
 target_sources(infernix_nvfp4_non_rdc PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/nvfp4_a4_tma.cu"
 )
+endif()

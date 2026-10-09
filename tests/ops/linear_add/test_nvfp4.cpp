@@ -136,6 +136,9 @@ int run_shape(std::int32_t n, std::int32_t k, std::uint32_t seed) {
     options.input_scale_divisor  = 3.5F;
     quantized_weight::PackedWeight host_weight =
         quantized_weight::make_patterned_weight(QType::NVFP4, n, k, seed, options);
+#ifdef INFERNIX_VOLTA
+    host_weight = quantized_weight::pack_volta_fixture(std::move(host_weight));
+#endif
     const std::vector<std::int32_t> rows = sampled_indices(n);
     const std::vector<float> materialized_weight =
         quantized_weight::materialize_rows_fp32(host_weight, rows);
@@ -181,7 +184,15 @@ int run_shape(std::int32_t n, std::int32_t k, std::uint32_t seed) {
             CUDA_CHECK(cudaStreamDestroy(stream));
         }
 
+#ifdef INFERNIX_VOLTA
+
+        const bool a4 = false; // Volta executes the A16 arithmetic profile.
+
+#else
+
         const bool a4           = invocation.policy == ops::LinearPolicy::AllowA4;
+
+#endif
         const std::string label = "NVFP4 linear_add [" + std::to_string(n) + "," +
                                   std::to_string(k) + "] " + (a4 ? "A4" : "A16") +
                                   " T=" + std::to_string(invocation.tokens);

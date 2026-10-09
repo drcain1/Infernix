@@ -131,6 +131,11 @@ std::string serve_usage_text(const char* argv0) {
            " <model.infernix> [options]\n"
            "\n"
            "Serves the OpenAI Responses/Chat Completions and Anthropic Messages APIs.\n"
+#ifdef INFERNIX_VOLTA
+           "V100 build: dense Qwen 27B only; MoE and Flash-Next are unavailable.\n"
+           "Prefill kernel/PV selectors keep the same Volta route; tuning speed\n"
+           "comparisons below describe Blackwell.\n"
+#endif
            "  --help, -h                 show this help and exit\n"
            "\n"
            "MODEL & CONTEXT\n"
@@ -223,8 +228,12 @@ std::string serve_usage_text(const char* argv0) {
            "                             the OS budget withholds (~0.6 GiB more expert\n"
            "                             cache on an RTX 5090; may move to system memory\n"
            "                             if another program needs VRAM)\n"
+#ifdef INFERNIX_VOLTA
+           "  --kv-dtype T               KV storage: bf16 (default) | int8 | fp8\n"
+#else
            "  --kv-dtype T               KV storage: bf16 (default) | int8 | fp8 | nvfp4 | k8v4 |\n"
            "                             vq2 | k4v2\n"
+#endif
            "  --host-context-mib N       pinned Host budget in decimal MiB that resolve to\n"
            "                             whole bytes. Hybrid system: the pool KV blocks and\n"
            "                             state snapshots share (default 8192; 0 = GPU only).\n"

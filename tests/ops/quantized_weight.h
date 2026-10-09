@@ -227,6 +227,8 @@ inline int unpack_lowbit_code(const std::uint8_t* nibble, const std::uint8_t* hi
 } // namespace detail
 
 struct PackedWeight {
+    // Independent oracle retains the original representation when testing offline packing.
+    std::vector<std::uint8_t> oracle_payload;
     std::vector<std::uint8_t> payload;
     std::vector<float> dequant;
     Weight weight{};
@@ -298,6 +300,38 @@ struct PackedWeight {
         return w;
     }
 };
+
+// Fixture-only packing; the mathematical oracle decodes the retained source bytes.
+inline PackedWeight pack_volta_fixture(PackedWeight packed) {
+    const int n=packed.weight.n, k=packed.weight.k;
+    const bool fp8=packed.weight.qtype==QType::FP8_E4M3FN_ROW_BF16;
+    if ((!fp8 && packed.weight.qtype!=QType::NVFP4) || n%32 || k%128)
+        throw std::invalid_argument("Volta fixture geometry/format");
+    packed.oracle_payload=packed.payload;
+    const auto& source=packed.oracle_payload;
+    for(int r=0;r<n;++r) {
+        const int lane=(r%32)/8*4+r%4+(r%8)/4*16;
+        if(fp8) {
+            for(int c=0;c<k;++c) {
+                const std::size_t dst=(((std::size_t(r/32)*(k/128)+c/128)*8+c%128/16)*32+lane)*16+c%16;
+                packed.payload[dst]=source[std::size_t(r)*k+c];
+            }
+        } else {
+            constexpr int order[16]={0,2,4,6,1,3,5,7,8,10,12,14,9,11,13,15};
+            for(int g=0;g<k/16;++g) {
+                const std::size_t group=(std::size_t(r/32)*(k/16)+g)*32+lane;
+                for(int j=0;j<8;++j) {
+                    const auto nibble=[&](int i){return (source[std::size_t(r)*k/2+g*8+i/2]>>(4*(i%2)))&15;};
+                    packed.payload[group*8+j]=nibble(order[j*2])|(nibble(order[j*2+1])<<4);
+                }
+                const std::size_t src=(std::size_t(r/128)*(k/64)+g/4)*512+(r%32)*16+(r%128)/32*4+g%4;
+                packed.payload[packed.scale_plane_offset+group]=source[packed.scale_plane_offset+src];
+            }
+        }
+    }
+    packed.weight.layout=QuantLayout::VoltaQpn;
+    return packed;
+}
 
 enum class RowSplitScalePattern : std::uint8_t {
     Unit,
@@ -645,6 +679,7 @@ inline PackedWeight make_patterned_weight(QType qtype, std::int32_t n, std::int3
 inline double logical_weight_fp64(const PackedWeight& packed, std::int32_t row,
                                   std::int32_t column) {
     const Weight& weight = packed.weight;
+    const auto& payload = packed.oracle_payload.empty() ? packed.payload : packed.oracle_payload;
     if (row < 0 || row >= weight.shape[0] || column < 0 || column >= weight.shape[1]) {
         throw std::out_of_range("quantized-weight fixture: logical index out of range");
     }
@@ -655,31 +690,31 @@ inline double logical_weight_fp64(const PackedWeight& packed, std::int32_t row,
             throw std::invalid_argument("linear-weight fixture: invalid contiguous BF16 metadata");
         const auto offset = (static_cast<std::size_t>(row) * weight.k + column) * 2;
         return static_cast<double>(
-            detail::bf16_to_f32(detail::load_u16_le(packed.payload, offset)));
+            detail::bf16_to_f32(detail::load_u16_le(payload, offset)));
     }
 
     if (weight.qtype == QType::FP8_E4M3FN_ROW_BF16) {
-        if (weight.layout != QuantLayout::RowScale || weight.scale_dtype != DType::BF16 ||
+        if ((weight.layout != QuantLayout::RowScale && weight.layout != QuantLayout::VoltaQpn) || weight.scale_dtype != DType::BF16 ||
             weight.group != weight.k || weight.group_size != static_cast<std::uint32_t>(weight.k)) {
             throw std::invalid_argument("quantized-weight fixture: invalid FP8 metadata");
         }
-        const std::uint8_t code = packed.payload[static_cast<std::size_t>(row) * weight.k + column];
+        const std::uint8_t code = payload[static_cast<std::size_t>(row) * weight.k + column];
         const std::uint16_t scale_bits = detail::load_u16_le(
-            packed.payload, packed.scale_plane_offset + static_cast<std::size_t>(row) * 2);
+            payload, packed.scale_plane_offset + static_cast<std::size_t>(row) * 2);
         const float decoded =
             static_cast<float>(detail::decode_e4m3fn(code)) * detail::bf16_to_f32(scale_bits);
         return static_cast<double>(decoded);
     }
 
     if (weight.qtype == QType::NVFP4) {
-        if (weight.layout != QuantLayout::BlockScaleK16M128x4 ||
+        if ((weight.layout != QuantLayout::BlockScaleK16M128x4 && weight.layout != QuantLayout::VoltaQpn) ||
             weight.scale_dtype != DType::FP8_E4M3FN || weight.group != 16 ||
             !std::isfinite(weight.weight_scale_divisor) || weight.weight_scale_divisor <= 0.0F) {
             throw std::invalid_argument("quantized-weight fixture: invalid NVFP4 metadata");
         }
         const std::size_t code_offset =
             static_cast<std::size_t>(row) * weight.k / 2 + static_cast<std::size_t>(column / 2);
-        const std::uint8_t packed_codes = packed.payload[code_offset];
+        const std::uint8_t packed_codes = payload[code_offset];
         const std::uint8_t code = (column & 1) == 0 ? (packed_codes & 0x0fU) : (packed_codes >> 4);
 
         const std::int32_t group      = column / 16;
@@ -694,7 +729,7 @@ inline double logical_weight_fp64(const PackedWeight& packed, std::int32_t row,
             static_cast<std::size_t>(row_inner % 32) * 16U +
             static_cast<std::size_t>(row_inner / 32) * 4U + static_cast<std::size_t>(scale_lane);
         const double decoded = detail::decode_e2m1(code) *
-                               detail::decode_e4m3fn(packed.payload[scale_offset]) /
+                               detail::decode_e4m3fn(payload[scale_offset]) /
                                static_cast<double>(weight.weight_scale_divisor);
         return static_cast<double>(static_cast<float>(decoded));
     }
@@ -711,12 +746,12 @@ inline double logical_weight_fp64(const PackedWeight& packed, std::int32_t row,
     const int nibble_bytes            = detail::nibble_bytes_per_group(spec);
     const int high_bytes              = detail::high_bytes_per_group(spec);
 
-    const std::uint8_t* nibble       = packed.payload.data() + group_index * nibble_bytes;
+    const std::uint8_t* nibble       = payload.data() + group_index * nibble_bytes;
     const std::uint8_t* high         = high_bytes == 0 ? nullptr
-                                                       : packed.payload.data() + packed.high_plane_offset +
+                                                       : payload.data() + packed.high_plane_offset +
                                                      group_index * high_bytes;
     const std::uint16_t stored_scale = detail::load_u16_le(
-        packed.payload, packed.scale_plane_offset + group_index * sizeof(std::uint16_t));
+        payload, packed.scale_plane_offset + group_index * sizeof(std::uint16_t));
     const int signed_code                = detail::unpack_lowbit_code(nibble, high, spec, lane);
     const double exact_stored_fp16_scale = static_cast<double>(detail::f16_to_f32(stored_scale));
     return static_cast<double>(signed_code) * exact_stored_fp16_scale;

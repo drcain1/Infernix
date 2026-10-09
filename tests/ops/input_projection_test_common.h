@@ -50,7 +50,7 @@ inline std::vector<float> make_bf16_activation(std::int32_t rows, std::int32_t t
 class DevicePackedWeight {
 public:
     explicit DevicePackedWeight(quantized_weight::PackedWeight packed)
-        : host(std::move(packed)), device(host.payload.size()) {
+        : host(target_weight(std::move(packed))), device(host.payload.size()) {
         device.copy_from_host(host.payload.data(), host.payload.size());
     }
 
@@ -66,6 +66,17 @@ public:
 
     quantized_weight::PackedWeight host;
     DeviceBuffer device;
+
+private:
+    static quantized_weight::PackedWeight target_weight(quantized_weight::PackedWeight packed) {
+#ifdef INFERNIX_VOLTA
+        // Exercise the artifact representation used by the V100 Engine. The oracle retains
+        // the original independently decoded weight words in PackedWeight::oracle_payload.
+        if (packed.weight.qtype == QType::FP8_E4M3FN_ROW_BF16 || packed.weight.qtype == QType::NVFP4)
+            return quantized_weight::pack_volta_fixture(std::move(packed));
+#endif
+        return packed;
+    }
 };
 
 class GuardedBf16Tensor {

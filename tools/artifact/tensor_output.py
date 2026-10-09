@@ -9,6 +9,7 @@ from __future__ import annotations
 import torch
 
 from .codecs.direct import encode_direct
+from .codecs.volta import encode_planes
 from .codecs.fp8_row import encode_fp8_row_scaled
 from .codecs.nvfp4 import encode_nvfp4
 from .codecs.row_split import encode_row_split, split_row_planes
@@ -87,6 +88,22 @@ class TensorOutput:
         rows, k = codes.shape[0], obj.shape[1]
         if rows <= 0 or row_begin + rows > obj.shape[0]:
             raise ValueError(f"{obj.id}: encoded rows exceed parent")
+        if obj.layout == "volta_qpn_v1":
+            if row_begin % 32 or rows % 32:
+                raise ValueError(f"{obj.id}: Volta output needs whole 32-row tiles")
+            code, scale, divisor = encode_planes(codes, scales, weight_divisor, obj.format, (rows,k))
+            code_row = k // 2 if isinstance(self.format, Nvfp4Format) else k
+            scale_row = k // 16 if isinstance(self.format, Nvfp4Format) else 2
+            scale_offset = obj.shape[0] * code_row
+            self.write_bytes(row_begin * code_row, code)
+            self.write_bytes(scale_offset + row_begin * scale_row, scale)
+            if divisor is not None:
+                if self._divisor is None:
+                    self.write_bytes(scale_offset + obj.shape[0] * scale_row, divisor)
+                    self._divisor = divisor
+                elif self._divisor != divisor:
+                    raise ValueError(f"{obj.id}: weight divisor changed between row blocks")
+            return
         self._padding()
         if isinstance(self.format, QuantFormat):
             g = row_split_geometry(self.format, obj.shape)

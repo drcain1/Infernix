@@ -8,7 +8,11 @@
 namespace infernix::ops::detail {
 
 inline constexpr std::int32_t kLinearTopK                = 16;
+#ifdef INFERNIX_VOLTA
+inline constexpr std::int32_t kLinearTopKMaxChunkColumns = 8;
+#else
 inline constexpr std::int32_t kLinearTopKMaxChunkColumns = 128;
+#endif
 inline constexpr std::int32_t kLinearTopKGroupedRows     = 128;
 inline constexpr std::int32_t kLinearTopKDirectRows      = 16;
 inline constexpr std::int32_t kLinearTopKMergeFanIn      = 32;
@@ -18,6 +22,9 @@ inline constexpr std::int32_t kLinearTopKOptimizedRows   = 131072;
 inline constexpr std::int32_t kLinearTopKHidden          = 5120;
 
 struct LinearTopKWorkspace {
+#ifdef INFERNIX_VOLTA
+    Tensor logits;
+#endif
     std::int32_t tile_columns = 0;
     std::int32_t block_k      = 128;
     Tensor partial_keys;
@@ -41,6 +48,9 @@ allocate_linear_topk_workspace(Allocator& allocator, std::int32_t head_rows, std
     const std::int32_t secondary_groups =
         merge_groups > kLinearTopKMergeFanIn ? div_up(merge_groups, kLinearTopKMergeFanIn) : 0;
     LinearTopKWorkspace out;
+#ifdef INFERNIX_VOLTA
+    out.logits=allocator.alloc(DType::FP32,{head_rows,columns});
+#endif
     out.tile_columns = tile_columns;
     out.block_k      = block_k;
     out.partial_keys = allocator.alloc(DType::I64, {kLinearTopK, producer_groups, columns}, 256);

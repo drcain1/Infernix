@@ -11,7 +11,9 @@
 #include "runtime/engine/diagnostics.h"
 #include "runtime/engine/context_cache/hybrid_resource_manager.h"
 #include "runtime/engine/model_instance.h"
+#if !defined(INFERNIX_VOLTA)
 #include "runtime/engine/qwen4_exp_instance.h"
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -212,17 +214,23 @@ public:
         runtime::EngineCore<runtime::ModelInstance,
                             runtime::HybridResourceManager<runtime::ModelInstance::ModelContract>>;
     using ScoringCore = runtime::CausalScoreCore<runtime::ModelInstance>;
+#if !defined(INFERNIX_VOLTA)
     // Qwen3.8-Flash-Next: the common core over the hybrid manager surface, without a prefix cache.
     using Qwen4ExpCore = runtime::EngineCore<
         runtime::Qwen4ExpInstance, runtime::HybridResourceManager<runtime::Qwen4ExpInstance::ModelContract>>;
     using Core = std::variant<std::monostate, std::unique_ptr<GenerationCore>,
                               std::unique_ptr<HybridGenerationCore>, std::unique_ptr<ScoringCore>,
                               std::unique_ptr<Qwen4ExpCore>>;
+#else
+    using Core = std::variant<std::monostate, std::unique_ptr<GenerationCore>,
+                              std::unique_ptr<HybridGenerationCore>, std::unique_ptr<ScoringCore>>;
+#endif
 
     explicit Impl(EngineOptions engine_options)
         : options(normalize(std::move(engine_options))),
           device(initialize_device(options)) {
         nvtx::ScopedRange load_range(nvtx::Name::EngineLoad, nvtx::Category::Runtime);
+#if !defined(INFERNIX_VOLTA)
         if (architecture == models::Architecture::Qwen4Exp) {
             auto constructed  = runtime::construct_qwen4_exp(options, device);
             options           = std::move(constructed.options);
@@ -236,6 +244,7 @@ public:
             finalize_phase.complete();
             return;
         }
+#endif
         const bool tree_auto_requested = options.speculative.draft_tree_auto;
         auto constructed               = runtime::construct_model(options, device);
         active                         = std::move(constructed.instance);
@@ -267,11 +276,13 @@ public:
     // hybrid prefix cache's) need the artifact's architecture, read once here. An unreadable
     // artifact is reported by the (Qwen3.5) model construction, after option validation.
     EngineOptions normalize(EngineOptions engine_options) {
+#if !defined(INFERNIX_VOLTA)
         try {
             if (runtime::artifact_is_qwen4_exp(engine_options.artifact_path)) {
                 architecture = models::Architecture::Qwen4Exp;
             }
         } catch (const std::exception&) {}
+#endif
         runtime::validate_engine_options(engine_options, architecture);
         return runtime::normalize_engine_options(std::move(engine_options), architecture);
     }
@@ -304,19 +315,23 @@ public:
     }
 
     [[nodiscard]] bool persists_prefix_cache() const noexcept {
-        return (std::holds_alternative<std::unique_ptr<HybridGenerationCore>>(core) ||
-                std::holds_alternative<std::unique_ptr<Qwen4ExpCore>>(core)) &&
+        return (std::holds_alternative<std::unique_ptr<HybridGenerationCore>>(core)
+#if !defined(INFERNIX_VOLTA)
+                || std::holds_alternative<std::unique_ptr<Qwen4ExpCore>>(core)
+#endif
+                ) &&
                options.context_cache.enabled && options.context_cache.mode == ContextCacheMode::Hybrid &&
                !options.context_cache.hybrid.persistent_file.empty();
     }
 
     void report_prefix_cache_save() const noexcept {
         try {
+#if !defined(INFERNIX_VOLTA)
             if (qwen4) {
                 report_prefix_cache_save(qwen4->program->prefix_shutdown_save());
-            } else {
-                report_prefix_cache_save(active->program->hybrid_shutdown_save());
-            }
+            } else
+#endif
+            { report_prefix_cache_save(active->program->hybrid_shutdown_save()); }
         } catch (const std::exception& error) {
             runtime::publish_diagnostic(options.diagnostic_observer, DiagnosticLevel::Warning,
                                         "prefix cache not saved: %s", error.what());
@@ -346,16 +361,26 @@ public:
     }
 
     [[nodiscard]] const models::qwen3_5::Frontend& frontend() const {
-        return qwen4 != nullptr ? qwen4->frontend : active->frontend;
+#if !defined(INFERNIX_VOLTA)
+        if (qwen4) return qwen4->frontend;
+#endif
+        return active->frontend;
     }
 
-    [[nodiscard]] std::uint32_t capacity() const { return qwen4 != nullptr ? qwen4->capacity : active->capacity; }
+    [[nodiscard]] std::uint32_t capacity() const {
+#if !defined(INFERNIX_VOLTA)
+        if (qwen4) return qwen4->capacity;
+#endif
+        return active->capacity;
+    }
 
     models::Architecture architecture = models::Architecture::Qwen3_5; // set by normalize
     EngineOptions options;
     DeviceContext device;
     std::unique_ptr<runtime::ModelInstance> active;
+#if !defined(INFERNIX_VOLTA)
     std::unique_ptr<runtime::Qwen4ExpInstance> qwen4;
+#endif
     LoadSummary load;
     ModelMetadata model_metadata;
     ModelSamplingDefaults sampling_defaults;

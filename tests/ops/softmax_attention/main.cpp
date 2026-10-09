@@ -30,6 +30,12 @@ int main(int argc, char** argv) {
                 const std::string_view name(argv[++i]);
                 storage     = name == "all" ? std::nullopt
                                             : std::optional(infernix::test::parse_kv_cache_storage(name));
+#ifdef INFERNIX_VOLTA
+                if (storage && *storage != infernix::KvCacheStorage::BFloat16 &&
+                    *storage != infernix::KvCacheStorage::Int8Group64 &&
+                    *storage != infernix::KvCacheStorage::Fp8E4M3Row256)
+                    throw std::invalid_argument("V100 attention supports bf16, int8 and fp8 KV");
+#endif
                 causal_only = true;
                 if (storage == infernix::KvCacheStorage::Vq2 ||
                     storage == infernix::KvCacheStorage::Q4KeyVq2Value)

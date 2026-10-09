@@ -1,7 +1,11 @@
 # Build system
 
 Infernix builds from its source tree with CMake 3.28+ and C++/CUDA 20.
-The supported architecture is `sm_120a`; CUDA 13.1 is the validated development toolkit.
+The default architecture is `sm_120a`; CUDA 13.1 is the validated Blackwell development toolkit.
+The V100 port selects `sm_70` and requires CUDA 12.9 (CUDA 13 removes offline Volta compilation).
+Its scope is dense Qwen 27B through `Qwen3_5ForCausalLM`, including Qwen3.6/3.8 artifacts;
+MoE and Flash-Next are excluded from that build. See the
+[V100 comparison and qualification limits](../performance/qwen3.8-27b.md#v100-comparison-with-ninfer).
 Product commands and prerequisites are in the
 [README](../../README.md#quick-start-windows); test and measurement workflows live in
 [tests](../../tests/README.md) and [benchmarks](../../bench/README.md).
@@ -35,12 +39,43 @@ The checked-in `CMakePresets.json` provides:
 
 - `release`: Release product binaries, tests and benchmarks disabled;
 - `dev`: Release products, tests and benchmarks enabled;
+- `v100`: Release products in `build-v100/`, targeting `sm_70`;
 - matching build presets and a `dev` test preset with failure output enabled.
 
-Both configure presets use `build/`. Switching between them explicitly resets all three build
+The `release` and `dev` configure presets use `build/`. Switching between them explicitly resets all three build
 options; it does not create independent build trees. Build with `cmake --build build -j`.
 For a separate configuration, override the binary directory with `-B build-<name>` and use that
 directory in subsequent build/test commands.
+
+For the V100 target, select the CUDA 12.9 compiler explicitly if several toolkits are installed:
+
+```sh
+cmake --preset v100 -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.9/bin/nvcc
+cmake --build build-v100 -j
+```
+
+The toolkit path is local configuration. Volta tensor-core projection and attention headers are
+vendored under `third_party/`; their version and license records are included there. FP8 and NVFP4
+use FP16 tensor-core arithmetic with FP32 accumulation on this target. Activation A4/A8 permissions
+select the available A16 implementation; they do not require hardware FP4/FP8 instructions.
+BF16, INT8 and FP8 KV storage have Volta attention routes; other KV formats are not admitted.
+For small quantized projections (T <= 32), workspace-taking routes stage FP16 activations
+once per Op, avoiding repeated BF16 conversion in every output-row block. Their resource
+queries include this temporary buffer; workspace-free calls convert within the kernel.
+Wide quantized projections use temporary FP16 operands and FP32 accumulation in the Program's
+planned workspace; Q8 staging is bounded to 2,048-token tiles (512 for the vision merger's
+`[5120,4608]` geometry). Specialized MoE, Flash-Next and
+chunked-GDN implementation benchmarks are omitted from this build. The public Engine inference
+benchmark remains available with `INFERNIX_BUILD_BENCHMARKS=ON`.
+Convert existing v3 weights to the persistent Volta layout before serving:
+
+```sh
+python3.11 -m tools.artifact.pack_volta out/model.infernix out/model-volta.infernix
+```
+
+This permutation preserves represented weight values and embedded frontend resources. It does
+not upgrade v2 NInfer containers. Packing belongs to the offline artifact workflow; the Engine
+uploads the stored representation. See [storage layouts](storage-layouts.md) for its exact codec.
 
 Keep machine paths in the ignored `CMakeUserPresets.json`. For example, replacing the interpreter
 placeholder with the interpreter from the selected environment:

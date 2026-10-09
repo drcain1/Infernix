@@ -10,9 +10,11 @@ infernix_add_op_bench(infernix_dynamic_grouped_conv_prepare_bench
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/dynamic_grouped_conv_prepare_bench.cu")
 infernix_add_op_bench(infernix_linear_dynamic_grouped_conv_add_bench
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/linear_dynamic_grouped_conv_add_bench.cu")
+if(NOT INFERNIX_VOLTA)
 infernix_add_op_bench(infernix_gated_delta_net_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/gated_delta_net_bench.cu")
 infernix_add_op_bench(infernix_kimi_delta_attention_bench
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/kimi_delta_attention_bench.cu")
+endif()
 infernix_add_op_bench(infernix_gdn_replay_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/gdn_replay_bench.cu")
 infernix_add_op_bench(infernix_rope_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/rope_bench.cu")
 infernix_add_op_bench(infernix_rmsnorm_rope_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/rmsnorm_rope_bench.cu")
@@ -32,7 +34,9 @@ infernix_add_op_bench(infernix_cast_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/cas
 infernix_add_op_bench(infernix_argmax_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/argmax_bench.cu")
 infernix_add_op_bench(infernix_causal_conv1d_silu_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/causal_conv1d_silu_bench.cu")
 infernix_add_op_bench(infernix_linear_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/linear_bench.cu")
+if(NOT INFERNIX_VOLTA)
 infernix_add_op_bench(infernix_bf16_flash_next_sweep SOURCES "${CMAKE_CURRENT_LIST_DIR}/bf16_flash_next_sweep.cu")
+endif()
 infernix_add_op_bench(infernix_linear_topk_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/linear_topk_bench.cu")
 infernix_add_op_bench(infernix_candidate_selector_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/candidate_selector_bench.cu")
 infernix_add_op_bench(infernix_gdn_input_proj_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/gdn_input_proj_bench.cu")
@@ -54,13 +58,17 @@ infernix_add_op_bench(infernix_context_softmax_attention_bench
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/context_softmax_attention_bench.cu")
 infernix_add_op_bench(infernix_sliding_window_attention_bench
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/sliding_window_attention_bench.cu")
+if(NOT INFERNIX_VOLTA)
 infernix_add_op_bench(infernix_qsa_attention_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/qsa_attention_bench.cu")
+endif()
 infernix_add_op_bench(infernix_kv_cache_append_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/kv_cache_append_bench.cu")
 infernix_add_op_bench(infernix_prepare_masked_block_bench
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/prepare_masked_block_bench.cu")
 infernix_add_op_bench(infernix_sampling_select_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/sampling_select_bench.cu")
+if(NOT INFERNIX_VOLTA)
 infernix_add_op_bench(infernix_sparse_moe_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/sparse_moe_bench.cu")
 infernix_add_op_bench(infernix_offloaded_moe_wide_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/offloaded_moe_wide_bench.cu")
+endif()
 infernix_add_op_bench(infernix_linear_pair_bench SOURCES "${CMAKE_CURRENT_LIST_DIR}/linear_pair_bench.cu")
 infernix_add_op_bench(infernix_context_kv_materialize_bench
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/context_kv_materialize_bench.cu")

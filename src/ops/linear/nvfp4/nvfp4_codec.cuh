@@ -73,6 +73,15 @@ static_assert(alignof(Nvfp4QuantizedK16) == 8);
 
 __device__ __forceinline__ void
 pack_nvfp4_e2m1x16(const float2 (&values)[8], std::uint32_t& codes_lo, std::uint32_t& codes_hi) {
+#if __CUDA_ARCH__ < 1000
+    codes_lo = codes_hi = 0;
+#pragma unroll
+    for (int pair = 0; pair < 8; ++pair) {
+        const auto code = __nv_cvt_float2_to_fp4x2(values[pair], __NV_E2M1, cudaRoundNearest);
+        if (pair < 4) codes_lo |= std::uint32_t(code) << (8 * pair);
+        else codes_hi |= std::uint32_t(code) << (8 * (pair - 4));
+    }
+#else
     asm volatile("{\n"
                  ".reg .b8 b0;\n"
                  ".reg .b8 b1;\n"
@@ -98,6 +107,7 @@ pack_nvfp4_e2m1x16(const float2 (&values)[8], std::uint32_t& codes_lo, std::uint
                    "f"(values[2].x), "f"(values[2].y), "f"(values[3].x), "f"(values[3].y),
                    "f"(values[4].x), "f"(values[4].y), "f"(values[5].x), "f"(values[5].y),
                    "f"(values[6].x), "f"(values[6].y), "f"(values[7].x), "f"(values[7].y));
+#endif
 }
 
 // Reciprocal replaces the sixteen per-value divisions with one reciprocal plus multiplies.

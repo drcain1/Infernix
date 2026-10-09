@@ -32,6 +32,10 @@ namespace {
 // The criterion belongs to the activation-compute profile, not the weight storage format or a
 // private materialized/fused implementation.
 constexpr ReductionCriterion tolerance_for(ActivationCompute activation_compute) {
+#ifdef INFERNIX_VOLTA
+    // Policy permissions do not change the arithmetic selected by this target.
+    activation_compute = ActivationCompute::A16;
+#endif
     switch (activation_compute) {
     case ActivationCompute::A16:
         return {3.3e-3, 5.0e-3, 6.3e-3};
@@ -276,6 +280,8 @@ int run_profile(std::string_view label, const Profile& profile,
     }
     quantized_weight::PackedWeight host_weight = quantized_weight::make_patterned_weight(
         profile.qtype, profile.gate_up_rows, profile.input_rows, profile.seed, weight_options);
+    if (profile.volta_packed)
+        host_weight = quantized_weight::pack_volta_fixture(std::move(host_weight));
     const std::vector<std::uint16_t> host_activation = make_activation(profile, maximum_tokens);
     const std::vector<double> reference =
         linear_swiglu_oracle_fp64(profile, host_weight, host_activation, maximum_tokens);

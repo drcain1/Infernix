@@ -119,8 +119,12 @@ int run_target_projection_case(DevicePackedWeight& parent, DevicePackedWeight* g
         else
             launch();
         cuda_synchronize(device.stream);
+#ifdef INFERNIX_VOLTA
+        const bool a8 = false; // Volta executes the A16 arithmetic profile.
+#else
         const bool a8 =
             policy == ops::LinearPolicy::AllowA8 || policy == ops::LinearPolicy::AllowA4;
+#endif
         const auto criterion     = dual ? kAttnInputProjA16Tolerance
                                    : a8 ? kAttnInputProjA8Tolerance
                                         : kFp8AttnInputProjA16Tolerance;
@@ -397,7 +401,11 @@ int run_nvfp4_target_case(DevicePackedWeight& parent, std::int32_t tokens,
     constexpr std::int32_t kGateBegin  = kKeyBegin + kKvRows;
     constexpr std::int32_t kValueBegin = kGateBegin + kQRows;
     int failures                       = 0;
+#ifdef INFERNIX_VOLTA
+    const bool a4 = false; // Volta executes the A16 arithmetic profile.
+#else
     const bool a4                      = policy == ops::LinearPolicy::AllowA4;
+#endif
     const ReductionCriterion& criterion =
         a4 ? kAttnInputProjA4Tolerance : kAttnInputProjA16Tolerance;
     const std::int32_t sample_count = a4 ? kA4SampleRows : 7;
@@ -458,7 +466,11 @@ int run_fp8_target() {
         }
         const auto interval = ops::attn_input_proj_workspace_capacity_bytes(
             QType::FP8_E4M3FN_ROW_BF16, kRows, kHidden, policy, 1, 128);
-        if (interval != peak || (policy == ops::LinearPolicy::A16Only && interval != 0)) {
+        if (interval != peak
+#ifndef INFERNIX_VOLTA
+            || (policy == ops::LinearPolicy::A16Only && interval != 0)
+#endif
+            ) {
             std::cerr << "FP8 attention projection workspace interval mismatch\n";
             ++failures;
         }

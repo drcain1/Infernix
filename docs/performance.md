@@ -1,6 +1,10 @@
 # Single-GPU serving performance
 
-Published measurements use one NVIDIA GeForce RTX 5090 through Infernix's public HTTP serving route.
+The main corpus measurements use one NVIDIA GeForce RTX 5090 through Infernix's public HTTP serving route.
+The [V100 comparison with NInfer](performance/qwen3.8-27b.md#v100-comparison-with-ninfer)
+records a separate single-request Qwen3.8-27B workload on a 170 W V100-PCIE-32GB.
+Its [MTP activation-staging follow-up](performance/qwen3.8-27b.md#v100-mtp-activation-staging-optimization)
+records the current optimized build and preserves the earlier comparison.
 Choose a model below for its detailed results, run conditions, output limitations, and reproduction
 commands. These are recorded measurements; a model/backend being supported does not
 mean every workload or concurrency has a published measurement.

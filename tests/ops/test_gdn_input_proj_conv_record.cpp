@@ -515,7 +515,9 @@ int main() {
 
     int failures = test_record_capacity_domain();
     failures += run_q4_q5();
+#ifndef INFERNIX_VOLTA
     failures += run_q8();
+#endif
     failures += run_nvfp4();
     failures += run_fp8();
     std::cout << (failures == 0 ? "OK" : "FAIL") << " gdn_input_proj_conv_record\n";

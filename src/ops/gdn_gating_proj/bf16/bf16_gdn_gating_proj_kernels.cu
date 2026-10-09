@@ -39,7 +39,7 @@ template <int TokenTile, int KSlice, int RowsPerBlock>
 __global__ void bf16_gdn_gating_proj_small_t_partial_kernel(
     const __nv_bfloat16* __restrict__ x, const __nv_bfloat16* __restrict__ a_weight,
     const __nv_bfloat16* __restrict__ b_weight, float* __restrict__ partial, std::int32_t t) {
-    static_assert(TokenTile == kSmallTMax, "small-T token tile is fixed to 8");
+    static_assert(TokenTile == kSmallTMax, "small-T token tile must match the launch policy");
     static_assert(KSlice == kSmallTKSlice, "small-T K split is fixed to 512");
     static_assert(RowsPerBlock == kSmallTRowsPerBlock, "small-T rows/block mismatch");
     constexpr int kVecsPerCol = KSlice / 8;
@@ -48,7 +48,8 @@ __global__ void bf16_gdn_gating_proj_small_t_partial_kernel(
 
     const int lane   = static_cast<int>(threadIdx.x) & 31;
     const int warp   = static_cast<int>(threadIdx.x) >> 5;
-    const int token0 = static_cast<int>(blockIdx.z) * TokenTile;
+    constexpr int kRowTiles = div_up(kLogicalRows, RowsPerBlock);
+    const int token0 = (static_cast<int>(blockIdx.x) / kRowTiles) * TokenTile;
     if (token0 >= t) { return; }
     const int ncols = min(TokenTile, t - token0);
     const int split = static_cast<int>(blockIdx.y);
@@ -64,7 +65,7 @@ __global__ void bf16_gdn_gating_proj_small_t_partial_kernel(
     }
     __syncthreads();
 
-    const int logical_row = static_cast<int>(blockIdx.x) * RowsPerBlock + warp;
+    const int logical_row = (static_cast<int>(blockIdx.x) % kRowTiles) * RowsPerBlock + warp;
     if (logical_row >= kLogicalRows) { return; }
     const bool is_b = logical_row >= kN;
     const int row   = is_b ? logical_row - kN : logical_row;
@@ -357,8 +358,28 @@ bool launch_bf16_prefill_mma(Bf16GdnGatingTokenVariant variant, const Tensor& x,
     } else {
         constexpr std::int64_t kCtasPerTokenTile =
             static_cast<std::int64_t>(Geometry::kHeads / kBf16GdnBlockM) * SplitK;
+#ifdef INFERNIX_VOLTA
+        // The software BF16 kernel has different register occupancy on Volta. A
+        // cooperative grid must fit concurrently; both tail specializations may
+        // be used when slicing one invocation into token intervals.
+        static const int kResidentCtasPerSm = [] {
+            auto occupancy = [](auto full_tokens) {
+                constexpr bool FullTokens = decltype(full_tokens)::value;
+                auto kernel = bf16_gdn_gating_proj_gemm_mma_kernel<
+                    Geometry, SplitK, FullTokens, Warps, NormalizeInput, NormTokenCapacity>;
+                CUDA_CHECK(cudaFuncSetAttribute(
+                    kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemBytes));
+                int blocks = 0;
+                CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+                    &blocks, kernel, Warps * 32, kSmemBytes));
+                return blocks;
+            };
+            return std::min(occupancy(std::true_type{}), occupancy(std::false_type{}));
+        }();
+#else
         constexpr std::int32_t kResidentCtasPerSm =
             cooperative_resident_ctas_per_sm<Geometry, SplitK>();
+#endif
         const std::int64_t resident_ctas =
             static_cast<std::int64_t>(multiprocessor_count) * kResidentCtasPerSm;
         const std::int64_t max_token_tiles = resident_ctas / kCtasPerTokenTile;
@@ -431,8 +452,10 @@ void bf16_gdn_gating_proj_small_t_split10_launch(const Tensor& x, const Weight& 
     }
 
     dim3 partial_block(kSmallTThreads);
-    dim3 partial_grid(div_up(kLogicalRows, kSmallTRowsPerBlock), kSmallTSplits,
-                      div_up(t, kSmallTMax));
+    // Use the large X grid dimension for token tiles as well as rows; wide
+    // prefill must not inherit CUDA's 65,535-block Z limit.
+    dim3 partial_grid(div_up(kLogicalRows, kSmallTRowsPerBlock) * div_up(t, kSmallTMax),
+                      kSmallTSplits);
     bf16_gdn_gating_proj_small_t_partial_kernel<kSmallTMax, kSmallTKSlice, kSmallTRowsPerBlock>
         <<<partial_grid, partial_block, 0, stream>>>(
             static_cast<const __nv_bfloat16*>(x.data),

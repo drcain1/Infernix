@@ -15,8 +15,10 @@ namespace infernix::ops {
 
 inline constexpr int kTargetLogprobsBlock = 256;
 
+// Internal linkage lets CUDA 12.9 place these helper-local shared arrays in each invoking
+// kernel. Externally linked template arrays otherwise acquire module-wide shared offsets.
 template <int BlockSize>
-__device__ __forceinline__ float target_logprobs_block_max(float value) {
+static __device__ __forceinline__ float target_logprobs_block_max(float value) {
     static_assert(BlockSize >= kWarpSize && BlockSize <= 1024);
     static_assert((BlockSize & (BlockSize - 1)) == 0);
     constexpr int kWarps = BlockSize / kWarpSize;
@@ -45,7 +47,7 @@ struct TargetLogprobsColumn {
 };
 
 template <int BlockSize>
-__device__ __forceinline__ TargetLogprobsColumn
+static __device__ __forceinline__ TargetLogprobsColumn
 target_logprobs_column(const __nv_bfloat16* values, std::int32_t valid_rows) {
     float local_max = -CUDART_INF_F;
     float local_sum = 0.0f;

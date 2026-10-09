@@ -3,29 +3,35 @@ target_sources(infernix_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/bf16/bf16_linear_add_gemm_mma.cu"
   "${CMAKE_CURRENT_LIST_DIR}/bf16/bf16_linear_add_small_t.cu"
   "${CMAKE_CURRENT_LIST_DIR}/bf16/bf16_linear_add_plan.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_decode.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_small_t.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a16.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a4.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_plan.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_decode.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_a16.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_a8.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_plan.cpp"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_decode.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_small_t.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a16.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a4.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_plan.cpp>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_decode.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_a16.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_a8.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_plan.cpp>"
   "${CMAKE_CURRENT_LIST_DIR}/q4/q4_linear_add.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q5/q5_linear_add_gemm_mma.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q5/q5_linear_add_sliced_k_mma.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q5/q5_linear_add_gemm_simt.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q5/q5_linear_add_plan.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_gemm_mma.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_gemm_simt.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_gemm_splitk.cu"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_gemm_mma.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_gemm_simt.cu>"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_gemm_splitk.cu>"
   "${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_gemm_capacity.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_gemm_grouped.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q8/q8_linear_add_plan.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/../wrapper/linear_add.cpp"
 )
 
+if(NOT INFERNIX_VOLTA)
 target_sources(infernix_nvfp4_non_rdc PRIVATE
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a4_tma.cu"
+  "$<$<NOT:$<BOOL:${INFERNIX_VOLTA}>>:${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a4_tma.cu>"
 )
+endif()
+
+if(INFERNIX_VOLTA)
+  target_sources(infernix_ops PRIVATE "${CMAKE_CURRENT_LIST_DIR}/volta.cu")
+endif()

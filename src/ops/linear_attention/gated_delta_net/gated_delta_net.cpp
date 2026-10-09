@@ -176,10 +176,14 @@ std::size_t gated_delta_net_workspace_capacity_bytes(std::int32_t qk_heads,
         max_tokens < min_tokens) {
         throw std::invalid_argument("gated_delta_net workspace: invalid profile or interval");
     }
+#if defined(INFERNIX_VOLTA)
+    return 0;
+#else
     namespace chunked = detail::gated_delta_net::chunked;
     return max_tokens < chunked::kMinTokens
                ? 0
                : chunked::workspace_layout(qk_heads, value_heads, max_tokens).total_bytes;
+#endif
 }
 
 void gated_delta_net(const Tensor& q, const Tensor& k, const Tensor& v, const Tensor& g,
@@ -211,6 +215,10 @@ void gated_delta_net(const Tensor& q, const Tensor& k, const Tensor& v, const Te
     if (execution.multiprocessor_count <= 0) {
         throw std::invalid_argument("gated_delta_net: invalid SM count");
     }
+#if defined(INFERNIX_VOLTA)
+    detail::gated_delta_net::launch_recurrent_inout(q,k,v,g,beta,scale,normalize_qk,
+        ssm_state_in,ssm_state_out,out,execution.stream);
+#else
     namespace chunked = detail::gated_delta_net::chunked;
     if (q.ne[2] < chunked::kMinTokens) {
         detail::gated_delta_net::launch_recurrent_inout(q, k, v, g, beta, scale, normalize_qk,
@@ -237,6 +245,7 @@ void gated_delta_net(const Tensor& q, const Tensor& k, const Tensor& v, const Te
                                   scale};
     chunked::launch_prepare(args, qk, control, normalize_qk, execution.stream);
     chunked::launch_recurrence(args, qk, control, execution);
+#endif
 }
 
 } // namespace infernix::ops

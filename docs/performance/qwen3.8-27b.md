@@ -5,7 +5,7 @@
 On this page: [run records](#scope-and-run-records), [context profile](#no-speculation-context-profile),
 [single-request decode](#single-request-speculative-decode), [corpus makespan](#corpus-makespan),
 [decode saturation](#decode-saturation), [completion outcomes](#completion-outcomes),
-[reproduction](#reproduction-and-reports).
+[reproduction](#reproduction-and-reports), [V100 comparison](#v100-comparison-with-ninfer).
 
 ## Scope and run records
 
@@ -19,7 +19,8 @@ MTP3 and DFlash2 K=7 use the optimized proposal head. Startup and warmup are out
 The artifacts are `out/qwen3_8_27b.ninfer` (`groupwise-int`) and
 `out/qwen3_8_27b_nvfp4.ninfer` (`nvfp4`), including their selected speculative companion weights.
 All 20 configurations and 820 formal requests completed without request, CUDA, or allocation errors.
-The tables contain this campaign's measurements only.
+The following RTX 5090 tables contain this campaign's measurements only. The separate
+[V100 comparison](#v100-comparison-with-ninfer) records its own hardware and workload.
 
 | Run | Weights ID | Measurement | Context ceiling | C | Actual KV capacity (tokens, in C order) |
 |---|---|---|---|---|---|
@@ -286,3 +287,265 @@ for perf_profile in nvfp4 groupwise-int; do
     --output "$INFERNIX_PERF_OUTPUT/$perf_profile/dflash2-corpus"
 done
 ```
+
+## V100 comparison with NInfer
+
+This section preserves the initial qualified port comparison. The subsequent
+[MTP optimization](#v100-mtp-activation-staging-optimization) raises measured mean decode
+throughput to 63.84 tok/s, 20.27% above the same NInfer baseline.
+
+Measured October 9, 2026 (Europe/Stockholm) on one Tesla V100-PCIE-32GB, 80 SMs,
+ECC off, with the existing **170 W power limit**. Driver: 580.178.04. Infernix uses
+CUDA 12.9.86 and GCC 14.3.1 on AlmaLinux 10.2; the existing NInfer container uses CUDA 12.8.
+This is a separate, short comparison against the installed NInfer V100 service, not the
+RTX 5090 corpus campaign above. The acceptance criterion was to match or beat that service.
+
+Both servers used the Swift-1.5-Qwen3.8-27B-OrcaRouter-NVFP4-DFlash2 weights, including
+its original chat template and sampling resources. The source NInfer artifact is v2;
+the Infernix fixture has the same numeric payloads in a v3 container with the exact offline
+Volta layout permutation. Its mathematical bindings were checked against the repository's
+v2 upgrader. The generic upgrader replaces the chat template, so its default output alone
+would not reproduce this comparison's prompt token counts.
+
+| Setting | Both servers |
+|---|---|
+| Route | Persistent loopback OpenAI Chat Completions, non-streaming, one request at a time |
+| Context / KV capacity | 240,000 / auto; INT8 group-64 KV |
+| Prefill chunk | 2,048 tokens |
+| Speculation | MTP, four draft tokens, optimized proposal head |
+| CUDA Graphs / vision | Enabled / enabled |
+| Prefix cache | Original cache, one device state, eight host states, 8,192 MiB host KV budget |
+| Request | Bicycle maintenance notes repeated 72 times, then a request for a detailed guide |
+| Sampling | Temperature 0.7, thinking off; remaining defaults from the same artifact |
+| Repetitions | One excluded warmup, then three measured requests; none discarded |
+| Tokens | Every measured request: 2,061 prompt, 256 completion, zero cache hits |
+
+Rates below are the HTTP `timings.prompt_per_second` and `timings.predicted_per_second`
+fields; decode divides 255 decode intervals by their elapsed time. Wall time is curl's
+complete request time. Means are arithmetic means of per-request values; deviations are
+sample standard deviations. Acceptance pools accepted and drafted tokens across the three
+requests. This unseeded stochastic sample does not establish a universal speed advantage.
+
+| Trial | NInfer prompt tok/s | Infernix prompt tok/s | NInfer decode tok/s | Infernix decode tok/s | NInfer wall s | Infernix wall s |
+|---|---:|---:|---:|---:|---:|---:|
+| 0 | 926.54 | 945.86 | 48.34 | 59.32 | 7.502 | 6.506 |
+| 1 | 928.79 | 943.62 | 54.94 | 51.40 | 6.866 | 7.172 |
+| 2 | 923.48 | 941.35 | 55.96 | 56.11 | 6.795 | 6.760 |
+| Mean ± SD | 926.27 ± 2.67 | 943.61 ± 2.25 | 53.08 ± 4.14 | 55.61 ± 3.98 | 7.054 ± 0.389 | 6.813 ± 0.336 |
+
+The final means meet the criterion: **+1.87% prompt rate, +4.77% decode rate, and
+3.43% less wall time**. Trial 1 is an exception: decode was 6.44% slower and wall time
+4.46% longer. Pooled draft acceptance was 36.29% for NInfer and 40.24% for Infernix;
+changed draft acceptance contributes to the observed decode results. The reserved 240K
+context was exercised at startup, not filled by this 2K-prompt workload. Longer-context,
+multi-request, vision and DFlash throughput are not established by these measurements.
+
+### Development findings and costs
+
+Earlier complete versions missed the same baseline; their measurements remain part of the
+record. These are successive implementations, not repetitions pooled into the final mean.
+
+| Version | Mean prompt tok/s | Mean decode tok/s | Disposition |
+|---|---:|---:|---|
+| Initial complete port | 755.75 | 52.44 | 18.4% prompt regression; profiled the whole HTTP request |
+| Vectorized staging / SIMT gating / Q4 head | 899.55 | 52.89 | Still below both baseline means |
+| Wider GEMM / consistent Q8 decode | 922.45 | 55.05 | Prompt rate still 0.4% below baseline |
+| Bounded wide Q8 GEMM | 943.61 | 55.61 | Final measured implementation |
+
+The first warmup aborted because a cooperative GDN launch used Blackwell occupancy assumptions;
+actual kernel occupancy fixed the launch, and the production Volta prefill route now uses SIMT.
+Numerical qualification also caught and fixed batched BF16 KV writes, attention masking and
+workspace mismatches, insufficient FP16 attention accumulation, NVFP4 divisor overflow,
+and record-workspace and Q8 launch-limit errors. CUDA compilation/device-link issues were
+resolved before qualification.
+
+Two later wide-Q8 attempts failed startup before any measured request: unconstrained staging
+exceeded the matched memory budget, and a general 2,048-token bound still exceeded it by
+30.3 MB. The final query and execution share a 512-token bound for the vision merger's
+`[5120,4608]` geometry and a 2,048-token bound elsewhere. Context, vision and automatic headroom
+settings were retained. Staging uses caller-owned temporary FP16 operands and FP32 outputs;
+there is no extra persistent dequantized weight copy.
+
+A 16-token SIMT GDN tile was rejected: it passed the oracle but was 6.3–27.5% slower than the
+8-token tile across T=64,128,512,1024,2048. A Q8 switch for T=1 alone was rejected because it
+broke exact column invariance. The retained consistent small-batch policy improves the five
+measured MTP Q8 shapes at T=1 and T=4, but at **T=8** the `[14336,5120]` and `[34816,5120]`
+shapes take **231.424 and 538.624 µs**, versus **205.824 and 467.968 µs** with the earlier QPN
+route: **12.4% and 15.1% slower**. The other three T=8 shapes improved 15.9–19.4%.
+These are cold, single-Op CUDA Graph medians (five warmups, 30 samples), not multi-request
+inference results. This tradeoff preserves column invariance and prioritizes the measured
+single-request workload.
+
+The fixed Volta graph/driver reservation increased from 64 to 256 MiB, plus 4 MiB per executable.
+That reserves 192 MiB more in startup planning. Earlier DFlash runs used 218–250 MiB against
+an insufficient allowance; the final forced 32-node tree used 234 MiB within its 296 MiB
+allowance. Final ordinary/MTP/tree smoke runs each used a 740 MiB workspace. The CUDA 13 /
+Blackwell build and GPU routes were not requalified on this V100-only machine.
+
+Wide Q8 staging also increases the vision smoke's workspace from 780.0 to 839.5 MiB
+(+59.5 MiB). This is temporary planned memory, additional to the graph reservation above.
+The matched server still starts with vision and the original 240K context settings.
+
+### V100 qualification
+
+Qualification used the same V100 and CUDA 12.9 toolchain as the comparison. Independent
+FP32/FP64 Op oracles passed for native and packed projections, fused input/residual/SwiGLU
+routes, embeddings and proposal-head scores, GDN state transitions, speculative trees,
+and BF16/INT8/FP8 attention and cache writes. Exact codec/container checks passed (21 Python
+tests), as did GPU artifact materialization and writer interoperability. Tests exercise
+CUDA Graphs, masked/ragged attention, workspace boundaries and canaries. The final Q8 suite
+also covers exact column invariance on five real MTP geometries and staging tile tails:
+T=2048/2049/4097 for MTP and T=511/512/513/1025 for the vision merger.
+
+Through the public Engine, final ordinary, MTP4 and forced 32-node DFlash2-tree runs produced
+identical greedy 64-token outputs with INT8 KV, context 4096 and prefill chunk 2048. The
+answer reached its token cap; this checks route consistency, not completion quality. The
+tree ran 20 rounds, including seven side rounds, with zero fallback steps. The chart vision
+fixture correctly returned its title, three bars and the leftmost tallest bar.
+
+A short CausalScoring smoke used 169 input tokens (168 scored), one window, context 256,
+stride 128 and prefill chunk 256. Final perplexity was **7.291306 with BF16 KV** and
+**7.288551 with INT8 KV**. INT8 versus BF16 had top-1 agreement **98.81%** and mean KL
+lower bound **0.00048767** over the reference's top 32 tokens plus an other-token bucket.
+Earlier port results on this smoke were 7.288158/7.3185 (BF16/INT8) with KL 0.00042934;
+the final BF16 perplexity and KL are slightly higher, while INT8 perplexity is lower.
+These changes are retained in the record; this small sample does not establish corpus-level
+quality or numerical identity with NInfer. Long-context and concurrent end-to-end quality
+remain unmeasured.
+
+### V100 reproduction
+
+Build and pack using the [V100 instructions](../maintainer/build-system.md#configuration).
+The measured local artifact is
+`out/Swift-1.5-Qwen3.8-27B-OrcaRouter-NVFP4-DFlash2-volta.infernix`.
+Start a fresh server for the four-request sequence:
+
+```sh
+build-v100/apps/infernix-serve \
+  out/Swift-1.5-Qwen3.8-27B-OrcaRouter-NVFP4-DFlash2-volta.infernix \
+  --model-id qwen3.8-27b --host 127.0.0.1 --port 8080 \
+  --max-context 240000 --max-concurrency 1 --kv-capacity auto --prefill-chunk 2048 \
+  --kv-dtype int8 --spec mtp --draft-tokens 4 --lm-head-draft \
+  --use-original-prefix-caching --device-state-slots 1 --vision --preserve-thinking \
+  --pending-timeout-ms 600000
+```
+
+Local response JSON, wall times, earlier results, failed-startup logs and the exact client script
+are retained under `profiles/bench/v100-port-2026-10-09/` (generated reports, not source-controlled).
+In another terminal, pass a fresh output directory to the retained script:
+
+```sh
+bash profiles/bench/v100-port-2026-10-09/http_compare.sh /tmp/infernix-v100-repeat
+```
+
+The script sends labels `warmup`, `measured-0`, `measured-1`, `measured-2`. Each user message is
+`Notes LABEL: ` followed by 72 repetitions of
+`The bicycle requires regular maintenance. Inspect tire pressure, brake pads, chain wear, spoke tension, and bearing play before a long ride. `
+and then a newline followed by
+`Write a detailed guide to maintaining a bicycle, covering diagnosis, tools, repair steps, and preventive checks. Continue until the output limit.`
+It sets `max_tokens:256`, `enable_thinking:false`, `temperature:0.7` and model `qwen3.8-27b`.
+Verify the actual token and cache-hit counts when using another artifact or template.
+
+### V100 DFlash2 versus MTP
+
+A follow-up on the same October 9 build compared Infernix MTP4, DFlash2 with seven
+draft tokens and chain verification, and DFlash2 with seven draft tokens and
+`--draft-tree-nodes auto`. All retained `--lm-head-draft`, vision, INT8 KV, the original
+prefix cache, a 2,048-token prefill chunk and one execution lane. Hardware and HTTP workload
+were the same as above. Each mode used a fresh server, one excluded warmup and three measured
+requests; none were discarded. Every measured request had 2,061 prompt tokens, 256 output
+tokens and zero cache hits. Sampling remained unseeded at temperature 0.7.
+
+DFlash2 **could not start at the original 240,000-token context reservation**: minimum runtime
+plus automatic headroom required 11,956,537,344 bytes after weights, but only 10,488,119,296
+were available (a 1.37 GiB shortfall). This failed attempt produced no measured requests.
+The comparison therefore used **32,768 context tokens for all three modes**, including a
+fresh MTP measurement. No model code, power limit, headroom or vision setting changed.
+Loaded weights were 21.7 GiB for DFlash2 versus 20.0 GiB for MTP; their default pinned host
+context allocations were 9.46 and 9.15 GiB respectively.
+
+| Mode | Decode trials 0 / 1 / 2, tok/s | Mean decode ± sample SD | Mean prompt tok/s | Mean wall s | Pooled draft acceptance |
+|---|---|---:|---:|---:|---:|
+| MTP4 | 57.33 / 54.99 / 56.58 | 56.30 ± 1.19 | 937.74 | 6.755 | 41.13% |
+| DFlash2 chain, K=7 | 26.32 / 23.13 / 21.98 | 23.81 ± 2.25 | 828.40 | 13.294 | 23.51% |
+| DFlash2 auto tree, K=7 | 26.16 / 25.00 / 24.65 | 25.27 ± 0.79 | 824.82 | 12.628 | 25.70% |
+
+DFlash2 chain and auto-tree mean decode rates are **57.72% and 55.11% lower** than MTP;
+mean wall times are **96.78% and 86.93% longer**. Every DFlash2 decode trial is slower
+than every MTP trial. Auto trees improve the DFlash2 mean by 6.16%, but their first trial
+is slightly slower than the chain's first trial. MTP is the measured choice for this workload.
+Tree draft counts include side candidates, so acceptance percentages alone do not isolate
+the cause of the throughput difference. No kernel attribution was collected in this comparison.
+Other draft lengths, fixed tree widths, prompts and long contexts remain unmeasured; this
+does not establish DFlash2 performance against NInfer's own DFlash2 implementation.
+
+Exact startup scripts, all response JSON and wall times, the failed 240K startup log, and
+`dflash2-comparison.json` are retained in `profiles/bench/v100-port-2026-10-09/`.
+The measured directories are `mtp-32k/`, `dflash2-chain-32k/` and `dflash2-auto-32k/`;
+their scripts are `start_compare_32k_mtp.sh`, `start_compare_32k_chain.sh` and
+`start_compare_32k_auto.sh`. Reuse `http_compare.sh` with a fresh output directory.
+All benchmark servers were stopped afterward; NInfer remains stopped.
+
+### V100 MTP activation-staging optimization
+
+The follow-up optimization targets the same dense Qwen27B MTP4 workload, with a goal of
+at least 15% more decode throughput than the installed NInfer baseline. It retains the
+original **240,000-token context reservation**, vision, INT8 KV, 2,048-token prefill chunk,
+optimized proposal head, prefix-cache settings and 170 W power limit. No model weights,
+sampling settings or request text changed. Each measured request still has 2,061 prompt
+tokens, 256 output tokens and zero cache hits. There is one excluded warmup and three
+measured requests, with none discarded; the earlier results above remain separate baselines.
+
+A warmed whole-request Nsight Systems capture identified the small-batch FP8/NVFP4
+projections as the main remaining decode cost. They repeatedly converted the same BF16
+activations to FP16 in each output-row block. The workspace-taking route now converts once
+per Op for T <= 32 and reuses that FP16 buffer. The tensor-core math, FP32 accumulation,
+scale application and output policies retain their existing boundaries. Resource queries
+include the buffer; no persistent weight expansion or hidden device allocation was added.
+The workspace-free public overload continues to convert within its kernel.
+
+| Trial | Prompt tok/s | Decode tok/s | Wall s |
+|---|---:|---:|---:|
+| 0 | 951.14 | 63.90 | 6.184 |
+| 1 | 951.03 | 67.04 | 5.998 |
+| 2 | 947.51 | 60.57 | 6.412 |
+| Mean ± sample SD | 949.89 ± 2.06 | 63.84 ± 3.24 | 6.198 ± 0.208 |
+
+Against NInfer's 926.27 prompt / 53.08 decode tok/s and 7.054 s wall means, this is
+**+2.55% prompt, +20.27% decode and 12.14% less wall time**. Against the initial qualified
+port's 943.61 / 55.61 tok/s and 6.813 s, it is **+0.67% prompt, +14.79% decode and 9.02%
+less wall time**. Every optimized decode rate exceeds every initial-port and NInfer rate.
+The weakest numbered trial comparison against NInfer is trial 2 at +8.22%; the 15% target
+is met by the mean, not every individual trial. Pooled draft acceptance is 39.93%, versus
+40.24% for the initial port and 36.29% for NInfer. These remain short, unseeded samples
+on one prompt family; no universal or long-context speedup is claimed.
+
+Public Linear microbenchmarks used independently packed Volta weights, cold CUDA Graphs,
+five warmups and 30 measured samples per point. At each of T=1,4,5,8,16, the four FP8
+geometries `[16384,5120]`, `[14336,5120]`, `[5120,6144]`, `[5120,17408]` and NVFP4
+`[5120,17408]` improved: all 25 median latencies fell by **20.3–48.7%**. The unchanged
+NVFP4 SwiGLU `[34816,5120]` control ranged from 0.7% faster to **0.6% slower**, with T=16
+unchanged. These Op results are separate from the HTTP throughput claim.
+
+All seven affected numerical suites passed: packed/native Linear, attention input, GDN
+input, GDN snapshot and record, FP8 residual, and NVFP4 residual. One initial GDN test
+failed its workspace assertion because it expected the workspace-free overload to consume
+the policy overload's new scratch allocation; the assertion now distinguishes those calls,
+and the rerun passed. Numerical oracles, graph checks and canary checks were retained.
+The extra temporary buffer is `2*K*T` bytes, arena aligned, and an extra cast launch is
+captured per affected Op. Final plain/MTP/tree smokes retain the 740 MiB planned workspace.
+Measured CUDA Graph memory increases from 6 to **8 MiB** for plain/MTP and from 234 to
+**244 MiB** for the forced 32-node DFlash2 tree; all remain within the existing allowances.
+Their greedy 64-token outputs match both each other and the earlier build exactly.
+The chart vision output also matches, with its workspace still 839.5 MiB and graph memory
+8 MiB (previously 6 MiB). Both 168-position scoring summaries are exactly unchanged:
+BF16/INT8 perplexity 7.291306/7.288551, mean KL lower bound 0.00048767 and top-1 agreement
+98.81%. These are functional/numerical smoke checks, not corpus-quality qualification.
+Blackwell code is not selected by this change; its build/GPU
+regression testing remains unavailable on this machine.
+
+Evidence is retained in `profiles/bench/v100-mtp-optimization-2026-10-09/`: the whole-request
+profile, exact packed projection probe, before/after CSVs, oracle logs, and `staging-http/`
+with all HTTP responses and timings. Reproduce using the original 240K startup command and
+HTTP client above. The DFlash2 comparison predates this shared-kernel optimization and has
+not been remeasured; it must not be interpreted as current DFlash2 throughput.

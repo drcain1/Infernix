@@ -67,7 +67,11 @@ const char* q8_gdn_input_conv_schedule_name(Q8GdnInputConvScheduleId schedule) n
 }
 
 bool q8_gdn_input_admits(const Q8GdnInputProblem& problem) noexcept {
+#ifdef INFERNIX_VOLTA
+    return false;
+#else
     return supported_shape(problem) && problem.cols > 0;
+#endif
 }
 
 Q8GdnInputPlan q8_gdn_input_resolve_plan(const Q8GdnInputProblem& problem) {
@@ -94,6 +98,7 @@ Q8GdnInputConvPlan q8_gdn_input_conv_resolve_plan(const Q8GdnInputProblem& probl
 
 void q8_gdn_input_dispatch(const Tensor& x, const Weight& weight, Tensor& qkv, Tensor& z,
                            cudaStream_t stream) {
+#ifndef INFERNIX_VOLTA
     const Q8GdnInputProblem problem{x.ne[0], qkv.ne[0], z.ne[0], weight.n, weight.padded_shape[1],
                                     x.ne[1]};
     const Q8GdnInputPlan plan = q8_gdn_input_resolve_plan(problem);
@@ -109,6 +114,9 @@ void q8_gdn_input_dispatch(const Tensor& x, const Weight& weight, Tensor& qkv, T
         return;
     }
     throw std::logic_error("Q8 GDN input: unknown schedule");
+#else
+    throw std::invalid_argument("Volta GDN: the 2048-wide MoE geometry is outside this target");
+#endif
 }
 
 } // namespace infernix::ops::detail

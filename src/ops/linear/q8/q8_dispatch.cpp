@@ -1,11 +1,19 @@
 #include "ops/linear/q8/q8_dispatch.h"
 #include "ops/linear/q8/q8_launch.h"
 #include "ops/linear/q8/q8_shapes.h"
+#ifdef INFERNIX_VOLTA
+#include "ops/linear/volta/gemm.h"
+#endif
 
 #include <array>
 #include <stdexcept>
 
 namespace infernix::ops::detail {
+#ifdef INFERNIX_VOLTA
+bool q8_volta_qpn_supported(std::int32_t, std::int32_t, std::int32_t) noexcept;
+void launch_q8_volta_qpn(const Tensor&, const Weight&, Tensor&, cudaStream_t);
+#endif
+#ifndef INFERNIX_VOLTA
 namespace {
 using ShapeSelector = Q8Launch (*)(std::int32_t);
 
@@ -60,14 +68,27 @@ Q8Launch select_q8_generic(std::int32_t n, std::int32_t k, std::int32_t t) {
     return launch_q8_a16_mma_r32_t128;
 }
 } // namespace
+#endif
 
 Q8Launch select_q8_a16_launch(std::int32_t n, std::int32_t k, std::int32_t t) {
     if (t <= 0) throw std::invalid_argument("q8 linear: T must be positive");
     if (n <= 0 || k <= 0) throw std::invalid_argument("q8 linear: unsupported shape");
+#ifdef INFERNIX_VOLTA
+    // Keep one reduction order across small decode batches. Narrow output
+    // matrices retain that order at wider extents as well.
+    if (t <= 4) return launch_q8_a16_simt_r8_t4;
+    if (t <= 8 || n < 4096) return launch_q8_a16_simt_r8_t8;
+    if (q8_volta_qpn_supported(n, k, t)) return launch_q8_volta_qpn;
+    // Partial groups use the predicated FP32 path, with bounded token slices.
+    return launch_q8_a16_simt_r8_t4;
+#else
     for (const auto& entry : kShapes) {
-        if (entry.n == n && entry.k == k) return entry.select(t);
+        if (entry.n == n && entry.k == k) {
+            return entry.select(t);
+        }
     }
     return select_q8_generic(n, k, t);
+#endif
 }
 
 Q8Launch select_q8_launch(std::int32_t n, std::int32_t k, std::int32_t t, LinearPolicy policy) {
@@ -75,9 +96,29 @@ Q8Launch select_q8_launch(std::int32_t n, std::int32_t k, std::int32_t t, Linear
     return select_q8_a16_launch(n, k, t);
 }
 
+std::size_t q8_linear_workspace_capacity_bytes(int n, int k, LinearPolicy policy,
+                                               int min_tokens, int max_tokens) {
+    (void)select_q8_launch(n, k, min_tokens, policy);
+    (void)select_q8_launch(n, k, max_tokens, policy);
+#ifdef INFERNIX_VOLTA
+    if (volta_q8_wide_supported(n, k, max_tokens))
+        return volta_q8_workspace_bytes(n, k, max_tokens);
+#endif
+    return 0;
+}
+
 void q8_dispatch(const Tensor& x, const Weight& w, Tensor& out, LinearPolicy policy,
-                 cudaStream_t stream) {
-    select_q8_launch(w.n, w.k, x.ne[1], policy)(x, w, out, stream);
+                 WorkspaceArena* workspace, cudaStream_t stream) {
+    const auto launch = select_q8_launch(w.n, w.k, x.ne[1], policy);
+#ifdef INFERNIX_VOLTA
+    if (workspace && volta_q8_wide_supported(w.n, w.k, x.ne[1])) {
+        volta_q8_gemm(x, w, out, *workspace, stream);
+        return;
+    }
+#else
+    (void)workspace;
+#endif
+    launch(x, w, out, stream);
 }
 
 } // namespace infernix::ops::detail

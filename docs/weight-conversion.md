@@ -9,6 +9,23 @@ logical bindings and frontend resources.
 
 Run the commands below from the repository root.
 
+## V100 storage layout
+
+For the CUDA 12.9 `v100` build, pack an existing v3 dense Qwen 27B artifact offline:
+
+```bash
+python3.11 -m tools.artifact.pack_volta models/model.infernix models/model-volta.infernix
+```
+
+The destination must be a new path. This permutes FP8 and NVFP4 code/scale planes into
+`volta_qpn_v1`, preserving their values, global divisors, bindings, and embedded frontend resources.
+Other stored formats are copied. It does not change the model architecture or quantize weights
+again. The Engine uploads the stored representation; see [storage layouts](maintainer/storage-layouts.md)
+and the [V100 build instructions](maintainer/build-system.md).
+
+Upgrade a v2 container first. The upgrade described below replaces its chat template; preserve
+the original template explicitly when comparing an existing custom model's behavior or throughput.
+
 ## Upgrade an existing v2 artifact
 
 The offline upgrade tool supports the official Qwen3.6/3.8-27B groupwise-int and NVFP4 artifacts,

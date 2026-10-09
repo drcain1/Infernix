@@ -4,6 +4,10 @@
 #include <stdexcept>
 
 namespace infernix::ops::detail {
+#ifdef INFERNIX_VOLTA
+bool q4_volta_qpn_supported(std::int32_t, std::int32_t, std::int32_t) noexcept;
+void launch_q4_volta_qpn(const Tensor&, const Weight&, Tensor&, cudaStream_t);
+#endif
 namespace {
 struct ShapeEntry {
     std::int32_t n, k;
@@ -27,7 +31,14 @@ constexpr std::array kShapes{
 Q4Launch select_q4_a16_launch(std::int32_t n, std::int32_t k, std::int32_t t) {
     if (t <= 0) throw std::invalid_argument("q4 linear: T must be positive");
     for (const auto& entry : kShapes) {
-        if (entry.n == n && entry.k == k) return entry.select(t);
+        if (entry.n == n && entry.k == k) {
+#ifdef INFERNIX_VOLTA
+            if (t == 1 && n == 131072 && k == 5120)
+                return launch_q4_a16_gemv_r4_w1_direct;
+            if (q4_volta_qpn_supported(n, k, t)) return launch_q4_volta_qpn;
+#endif
+            return entry.select(t);
+        }
     }
     throw std::invalid_argument("q4 linear: unsupported shape");
 }

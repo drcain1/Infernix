@@ -42,8 +42,10 @@ Infernix is a from-scratch C++/CUDA inference engine for maximum single-GPU perf
 `Qwen3_5ForCausalLM` and `Qwen3_5MoeForCausalLM`; official Qwen3.6/3.8 artifacts and user recipes
 use the same architecture, binding and execution path. It also implements `Qwen4ExpForCausalLM`
 (Qwen3.8-Flash-Next, model family `qwen4_exp`), whose routed experts are offloaded to host memory or
-the SSD behind a VRAM expert cache. The implementation targets `sm_120a` and is tuned on NVIDIA
-GeForce RTX 5090.
+the SSD behind a VRAM expert cache. The Blackwell implementation targets `sm_120a` and is tuned on
+NVIDIA GeForce RTX 5090. The CUDA 12.9 `sm_70` implementation targets V100 and the dense Qwen 27B
+family; MoE and Flash-Next remain Blackwell-only. FP8/NVFP4 weights use the offline
+`volta_qpn_v1` layout and FP16 tensor-core arithmetic with FP32 accumulation on V100.
 
 Generation uses one GPU, one resident model, one to eight resident execution lanes fixed at startup,
 bounded FIFO ingress with finite bypass, resource-pressure preemption with Snapshot/Replay recovery,
@@ -194,7 +196,8 @@ maintainer environment's interpreter); the default `python`/`python3` may be a d
 Use it only after selecting that environment or checking its version. Normal resources are the
 build trees (`build-windows/` from `build_native.bat`, `build/` from the CMake presets), `out/`
 for converted artifacts and their `.conversion.json` reports, and `profiles/ncu/`,
-`profiles/nsys/`, `profiles/bench/`; the toolchain is CUDA 13.
+`profiles/nsys/`, `profiles/bench/`; the toolchain is CUDA 13 for Blackwell and CUDA 12.9 for V100
+(`build-v100/` from the `v100` preset).
 Select model artifacts by explicit path, never glob order, modification time, or unqualified
 “latest”. Source checkpoints and large artifacts are prerequisites; download or regenerate them
 only when that work is in scope. Install or upgrade dependencies only when the task needs it.

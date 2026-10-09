@@ -68,6 +68,16 @@ int q8_a16_conformance() {
             for (int t : {12, 13, 14}) calls.push_back({t});
         }
         if (shape.n == 248320) calls.push_back({34});
+#ifdef INFERNIX_VOLTA
+        if (shape.n == 5120 && shape.k == 4608) {
+            for (int t : {511, 512, 513, 1025}) calls.push_back({t});
+            calls.push_back({513, CallForm::Policy, infernix::ops::LinearPolicy::A16Only, true});
+        }
+        if (shape.n == 5120 && shape.k == 10240) {
+            for (int t : {2048, 2049, 4097}) calls.push_back({t});
+            calls.push_back({2049, CallForm::Policy, infernix::ops::LinearPolicy::A16Only, true});
+        }
+#endif
         if (shape.n == 2048 && shape.k == 16384) {
             for (int t : {383,  384,  385,  479,  480,  481,  639,  640,  641,  703,
                           704,  705,  959,  960,  961,  1343, 1344, 1345, 1679, 1680,
@@ -101,7 +111,16 @@ int q8_a16_column_invariance() {
           std::pair{Geometry{2560, 6144, 431U}, 8},   std::pair{Geometry{1280, 2560, 433U}, 48},
           std::pair{Geometry{2560, 640, 439U}, 16},   std::pair{Geometry{12800, 2560, 443U}, 8},
           std::pair{Geometry{13952, 2560, 449U}, 8},  std::pair{Geometry{2560, 2560, 457U}, 8},
-          std::pair{Geometry{2560, 4096, 409U}, 8}}) {
+          std::pair{Geometry{2560, 4096, 409U}, 8},
+#ifdef INFERNIX_VOLTA
+          // The Volta MTP projections share the small-batch reduction policy.
+          std::pair{Geometry{5120, 10240, 461U}, 8},
+          std::pair{Geometry{14336, 5120, 463U}, 8},
+          std::pair{Geometry{34816, 5120, 467U}, 8},
+          std::pair{Geometry{5120, 6144, 479U}, 8},
+          std::pair{Geometry{5120, 17408, 487U}, 8},
+#endif
+          }) {
         const auto host = make_q8_g32_fp16_weight(shape.n, shape.k, shape.seed);
         std::vector<std::uint16_t> activation(static_cast<std::size_t>(shape.k) * kColumns);
         std::uint32_t state = shape.seed;

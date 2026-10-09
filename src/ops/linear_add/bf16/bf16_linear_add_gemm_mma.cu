@@ -1,3 +1,16 @@
+#if defined(INFERNIX_VOLTA)
+#include "ops/linear/volta/bf16.cuh"
+#include "ops/linear/fp8/fp8_output.cuh"
+#include "ops/linear_add/bf16/bf16_linear_add_plan.h"
+namespace infernix::ops::detail {
+void bf16_linear_add_mma_launch(const Tensor& x,const Weight& w,Tensor& out,cudaStream_t stream){
+    volta_bf16_projection(x,w,Fp8ResidualOutput{static_cast<__nv_bfloat16*>(out.data),w.n},stream);
+}
+void bf16_linear_add_aggregate_mma_launch(const Tensor& x,const Weight& w,Tensor& out,cudaStream_t stream){
+    bf16_linear_add_mma_launch(x,w,out,stream);
+}
+}
+#else
 #include "ops/linear/bf16/bf16_instances.cuh"
 #include "ops/linear/bf16/bf16_template_launch.cuh"
 #include "ops/linear_add/bf16/bf16_linear_add_plan.h"
@@ -43,3 +56,5 @@ void bf16_linear_add_mma_launch(const Tensor& x, const Weight& weight, Tensor& r
         tma.template operator()<Bf16A16TmaR64T128K64S2>();
 }
 } // namespace infernix::ops::detail
+
+#endif

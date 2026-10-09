@@ -3,6 +3,11 @@
 `build/apps/infernix-serve` loads one v3 `.infernix` (or `.ninfer`) artifact and exposes OpenAI- and
 Anthropic-compatible HTTP endpoints over one resident Infernix Engine.
 
+For V100, use `build-v100/apps/infernix-serve` with a
+[Volta-packed dense Qwen 27B artifact](weight-conversion.md#v100-storage-layout) and
+`--kv-dtype bf16`, `int8`, or `fp8`. The same HTTP protocols and Engine scheduling apply.
+The [CLI platform notes](cli.md) describe the arithmetic and prompt-kernel differences.
+
 ## Start the server
 
 See [CUDA synchronization](cli.md#cuda-synchronization) for the shared `INFERNIX_CUDA_SYNC` setting.

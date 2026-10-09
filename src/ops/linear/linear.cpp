@@ -87,7 +87,7 @@ void dispatch_linear(const Tensor& x, const Weight& w, Tensor& out, LinearPolicy
         detail::q6_dispatch(x, w, out, policy, stream);
         return;
     case QType::Q8_G32_FP16:
-        detail::q8_dispatch(x, w, out, policy, stream);
+        detail::q8_dispatch(x, w, out, policy, workspace, stream);
         return;
     case QType::BF16:
         detail::bf16_dispatch(x, w, out, policy, stream);
@@ -129,9 +129,8 @@ std::size_t linear_workspace_capacity_bytes(QType qtype, std::int32_t output_row
         (void)detail::select_q6_launch(output_rows, input_rows, max_tokens, policy);
         return 0;
     case QType::Q8_G32_FP16:
-        (void)detail::select_q8_launch(output_rows, input_rows, min_tokens, policy);
-        (void)detail::select_q8_launch(output_rows, input_rows, max_tokens, policy);
-        return 0;
+        return detail::q8_linear_workspace_capacity_bytes(output_rows, input_rows, policy,
+                                                          min_tokens, max_tokens);
     case QType::BF16:
         (void)detail::select_bf16_launch(output_rows, input_rows, min_tokens, policy);
         (void)detail::select_bf16_launch(output_rows, input_rows, max_tokens, policy);

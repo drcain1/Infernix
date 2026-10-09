@@ -5,6 +5,11 @@ It uses the artifact's tokenizer, Text model, selected Main KV representation, f
 and main output head. It is an offline evaluator, not a serving endpoint or a logits-export API.
 Only Text weights and resources are loaded; Vision and speculative components are not required.
 
+The V100 executable is `build-v100/apps/infernix-perplexity`; use a
+[Volta-packed dense Qwen 27B artifact](weight-conversion.md#v100-storage-layout).
+BF16, INT8 and FP8 KV are supported. All linear activation permissions use the A16 route, and
+the requested prefill chunk is retained without Blackwell wave rounding.
+
 ## Run the fixed corpus
 
 The repository includes `ninfer-ppl-1m-v1`, a fixed set of 16 independent UTF-8 streams covering

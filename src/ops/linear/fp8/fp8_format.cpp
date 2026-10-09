@@ -40,6 +40,10 @@ Fp8WeightGeometry validate_fp8_weight(const Weight& weight, const char* operatio
         throw std::invalid_argument(std::string(operation) + ": FP8 shape must be positive");
     }
 
+    if (weight.layout == QuantLayout::VoltaQpn && (weight.n % 32 || weight.k % 128)) {
+        throw std::invalid_argument(std::string(operation) + ": incomplete Volta fragment tiles");
+    }
+
     Fp8WeightGeometry geometry{};
     geometry.code_plane_bytes   = checked_mul(static_cast<std::uint64_t>(weight.n),
                                               static_cast<std::uint64_t>(weight.k), operation);
@@ -49,7 +53,11 @@ Fp8WeightGeometry validate_fp8_weight(const Weight& weight, const char* operatio
         checked_add(geometry.scale_plane_offset, geometry.scale_plane_bytes, operation);
 
     const std::int64_t scale_stride = static_cast<std::int64_t>(weight.n) * 2;
-    if (weight.qtype != QType::FP8_E4M3FN_ROW_BF16 || weight.layout != QuantLayout::RowScale ||
+    if (weight.qtype != QType::FP8_E4M3FN_ROW_BF16 || (weight.layout != QuantLayout::RowScale
+#if defined(INFERNIX_VOLTA)
+        && weight.layout != QuantLayout::VoltaQpn
+#endif
+        ) ||
         weight.scale_dtype != DType::BF16 ||
         weight.group_size != static_cast<std::uint32_t>(weight.k) || weight.group != weight.k ||
         weight.ndim != 2 || weight.shape[0] != weight.n || weight.shape[1] != weight.k ||
